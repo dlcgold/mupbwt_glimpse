@@ -75,7 +75,7 @@ labels = [
     "30",
     "40",
     "50",
-    60,
+    "60",
 ]
 axs.set_xlabel("Minor allele frequency (%)")
 axs.set_ylabel("$r^2$ imputed vs true genotypes")
