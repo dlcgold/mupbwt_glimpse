@@ -23,44 +23,13 @@
  * SOFTWARE.
  ******************************************************************************/
 
-#ifndef _REF_GENOTYPE_READER_H
-#define _REF_GENOTYPE_READER_H
+#define _DECLARE_TOOLBOX_HERE
+#include <caller/caller_header.h>
 
-#include <utils/otools.h>
+int main(int argc, char ** argv) {
+	std::vector < std::string > args;
+	for (int a = 1 ; a < argc ; a ++) args.push_back(std::string(argv[a]));
+	caller().phase(args);
+	return EXIT_SUCCESS;
+}
 
-#include "../containers/ref_haplotype_set.h"
-#include <containers/variant_map.h>
-
-class ref_genotype_reader {
-public:
-  // DATA
-  ref_haplotype_set &H;
-  variant_map &V;
-
-  const std::string region;
-  const float sparse_maf;
-  const bool keep_mono;
-
-  int n_ref_samples;
-  std::vector<int> ploidy_ref_samples;
-
-  // CONSTRUCTORS/DESCTRUCTORS
-  ref_genotype_reader(ref_haplotype_set &, variant_map &,
-                      const std::string regions, const float _sparse_maf,
-                      const bool _keep_mono);
-  ~ref_genotype_reader();
-
-  // IO
-  void set_ploidy_ref(const int ngt_ref, const int *gt_arr_ref,
-                      const int ngt_arr_ref);
-  void readRefPanel(std::string fref, int nthreads,
-                    const std::string prefix_output, const std::string reg_out,
-                    bool use_common = false);
-  void initReader(bcf_srs_t *sr, const std::string fref, int nthreads);
-  void scanGenotypesCommon(bcf_srs_t *sr, const std::string fref, int ref_sr_n);
-  void parseRefGenotypes(bcf_srs_t *sr, bcf_srs_t *srm, const std::string fref,
-                         const std::string output_prefix,
-                         const std::string reg_out, bool use_common = false);
-};
-
-#endif

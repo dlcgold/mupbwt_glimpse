@@ -113,7 +113,8 @@ void ref_genotype_reader::initReader(bcf_srs_t *sr, const std::string fref,
 
 void ref_genotype_reader::readRefPanel(std::string fref, int nthreads,
                                        const std::string prefix_output,
-                                       const std::string reg_out) {
+                                       const std::string reg_out,
+                                       bool use_common) {
   if (stb.get_extension(fref) == "xsi")
     fref += "_var.bcf";
 
@@ -127,7 +128,8 @@ void ref_genotype_reader::readRefPanel(std::string fref, int nthreads,
 
   bcf_srs_t *sr_parse = bcf_sr_init();
   initReader(sr_parse, fref, nthreads);
-  parseRefGenotypes(sr_parse, sr_scan_mu, fref, prefix_output, reg_out);
+  parseRefGenotypes(sr_parse, sr_scan_mu, fref, prefix_output, reg_out,
+                    use_common);
   bcf_sr_destroy(sr_parse);
 }
 
@@ -246,7 +248,8 @@ void ref_genotype_reader::scanGenotypesCommon(
 void ref_genotype_reader::parseRefGenotypes(bcf_srs_t *sr, bcf_srs_t *srm,
                                             const std::string fref,
                                             const std::string output_prefix,
-                                            const std::string reg_out) {
+                                            const std::string reg_out,
+                                            bool use_common) {
   if (sr == nullptr)
     vrb.error("Error reading reference file");
 
@@ -281,7 +284,7 @@ void ref_genotype_reader::parseRefGenotypes(bcf_srs_t *sr, bcf_srs_t *srm,
     rAN = bcf_get_info_int32(sr->readers[0].header, line_ref, "AN", &vAN, &nAN);
     if ((nAC != 1) || (nAN != 1))
       vrb.error(
-          b "VCF for reference panel needs AC/AN INFO fields to be present");
+          "VCF for reference panel needs AC/AN INFO fields to be present");
     calt = vAC[0];
     cref = (vAN[0] - vAC[0]);
 
@@ -355,11 +358,24 @@ void ref_genotype_reader::parseRefGenotypes(bcf_srs_t *sr, bcf_srs_t *srm,
   vrb.bullet("Reference panel parsing done (" +
              stb.str(tac.rel_time() * 1.0 / 1000, 2) + "s)");
   vrb.bullet(fref);
-
-  // auto mupbwt = rlpbwt_int(srm, fref, H, V, n_ref_samples, keep_mono);
+  // auto mupbwt = mupbwt_int(srm, fref, H, V, n_ref_samples, keep_mono);
   std::vector<std::string> tmp;
-  auto mupbwt = rlpbwt_int(fref, tmp, H, V, V.input_gregion, 1);
-  // auto mupbwt = rlpbwt_int(fref.c_str());
+  auto mupbwt =
+      rlpbwt_int(fref, tmp, H, V, V.input_gregion, 1, false, use_common);
+  // auto mupbwt = mupbwt_int(fref.c_str());
+  if (true) {
+    auto runs = mupbwt.get_run_number();
+    std::cout << "\n----\nTotal haplotypes: " << mupbwt.height << "\n";
+    std::cout << "Total sites: " << mupbwt.width << "\n";
+    std::cout << "----\nTotal runs: " << runs << "\n";
+    std::cout << "Average runs: " << std::ceil(runs / mupbwt.width)
+              << "\n----\n";
+    auto s = mupbwt.size_in_mega_bytes(true);
+    std::cout << "mupbwt: " << s << " megabytes\n----\n";
+    std::cout << "estimated dense size: "
+              << dense_size_megabyte(mupbwt.height, mupbwt.width)
+              << " megabytes\n----\n";
+  }
   std::ofstream outstream;
   auto memorize_file = output_prefix + "_" + reg_out + ".ser";
   outstream.open(memorize_file.c_str());

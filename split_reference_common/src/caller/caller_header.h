@@ -23,44 +23,65 @@
  * SOFTWARE.
  ******************************************************************************/
 
-#ifndef _REF_GENOTYPE_READER_H
-#define _REF_GENOTYPE_READER_H
+#ifndef _CALLER_H
+#define _CALLER_H
 
 #include <utils/otools.h>
 
 #include "../containers/ref_haplotype_set.h"
 #include <containers/variant_map.h>
+#include <io/ref_genotype_reader.h>
 
-class ref_genotype_reader {
+#define STAGE_INIT 0
+#define STAGE_BURN 1
+#define STAGE_MAIN 2
+
+class caller {
 public:
-  // DATA
-  ref_haplotype_set &H;
-  variant_map &V;
+  // COMMAND LINE OPTIONS
+  bpo::options_description descriptions;
+  bpo::variables_map options;
+  bool use_common = false;
 
-  const std::string region;
-  const float sparse_maf;
-  const bool keep_mono;
+  std::vector<std::string> chrid;
+  std::vector<int> input_start;
+  std::vector<int> input_stop;
+  std::vector<std::string> input_gregion;
+  std::vector<int> output_start;
+  std::vector<int> output_stop;
+  std::vector<std::string> output_gregion;
 
-  int n_ref_samples;
-  std::vector<int> ploidy_ref_samples;
+  // MULTI-THREADING
+  int i_workers, i_jobs;
+  std::vector<pthread_t> id_workers;
+  pthread_mutex_t mutex_workers;
 
-  // CONSTRUCTORS/DESCTRUCTORS
-  ref_genotype_reader(ref_haplotype_set &, variant_map &,
-                      const std::string regions, const float _sparse_maf,
-                      const bool _keep_mono);
-  ~ref_genotype_reader();
+  // CONSTRUCTOR
+  caller();
+  ~caller();
 
-  // IO
-  void set_ploidy_ref(const int ngt_ref, const int *gt_arr_ref,
-                      const int ngt_arr_ref);
-  void readRefPanel(std::string fref, int nthreads,
-                    const std::string prefix_output, const std::string reg_out,
-                    bool use_common = false);
-  void initReader(bcf_srs_t *sr, const std::string fref, int nthreads);
-  void scanGenotypesCommon(bcf_srs_t *sr, const std::string fref, int ref_sr_n);
-  void parseRefGenotypes(bcf_srs_t *sr, bcf_srs_t *srm, const std::string fref,
-                         const std::string output_prefix,
-                         const std::string reg_out, bool use_common = false);
+  // METHODS
+  void phase_individual(const int, const int);
+  void phase_iteration();
+  void phase_loop();
+
+  // PARAMETERS
+  void declare_options();
+  void parse_command_line(std::vector<std::string> &);
+  void check_options();
+  void verbose_options();
+  void verbose_files();
+
+  // FILE I/O
+  void read_files_and_initialise();
+  void setup_mpileup();
+  void read_BAMs();
+
+  void phase(std::vector<std::string> &);
+  void write_files_and_finalise();
+
+  // REGION
+  void buildCoordinates();
 };
 
 #endif
