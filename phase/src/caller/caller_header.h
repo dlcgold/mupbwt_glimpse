@@ -28,88 +28,86 @@
 
 #include <utils/otools.h>
 
+#include "mu-pbwt/rlpbwt_int.h"
 #include <containers/genotype_set.h>
 #include <containers/haplotype_set.h>
 #include <containers/variant_map.h>
-#include <io/genotype_reader.h>
 #include <io/genotype_bam_caller.h>
-#include "mu-pbwt/rlpbwt_int.h"
+#include <io/genotype_reader.h>
 
-#include <models/phasing_hmm.h>
 #include <models/imputation_hmm.h>
+#include <models/phasing_hmm.h>
 
 class caller {
 public:
-	//COMMAND LINE OPTIONS
-	bpo::options_description descriptions;
-	bpo::variables_map options;
+  // COMMAND LINE OPTIONS
+  bpo::options_description descriptions;
+  bpo::variables_map options;
 
-	//INTERNAL DATA
-	haplotype_set H;
-	genotype_set G;
-	variant_map V;
-	glimpse_mpileup M;
-    bool use_mu = false;
+  // INTERNAL DATA
+  haplotype_set H;
+  genotype_set G;
+  variant_map V;
+  glimpse_mpileup M;
+  bool use_mu = false;
   bool use_smems = false;
-    bool use_mpsc = false;
+  bool use_mpsc = false;
+  bool use_mu_common = false;
 
-    rlpbwt_int mupbwt;
+  rlpbwt_int mupbwt;
 
-	InputFormat input_fmt;
-	OutputFormat output_fmt;
-	OutputCompression output_compr;
-	int bgen_bits;
+  InputFormat input_fmt;
+  OutputFormat output_fmt;
+  OutputCompression output_compr;
+  int bgen_bits;
 
-	//MULTI-THREADING
-	int i_workers, i_jobs;
-	std::vector < pthread_t > id_workers;
-	pthread_mutex_t mutex_workers;
+  // MULTI-THREADING
+  int i_workers, i_jobs;
+  std::vector<pthread_t> id_workers;
+  pthread_mutex_t mutex_workers;
 
-	float min_gl;
+  float min_gl;
 
-	//COMPUTE DATA
-	int current_stage;
-	stats1D statH;
-	stats1D statC;
-	std::vector < std::vector < float > > HP0;			// Haplotype posteriors 0
-	std::vector < std::vector < float > > HP1;			// Haplotype posteriors 1
-	std::vector < std::vector < float > > HLC;			// Conditional haplotype likelihoods
-	std::vector < conditioning_set * > COND;			// Conditionning states
-	std::vector < imputation_hmm * > HMM;
+  // COMPUTE DATA
+  int current_stage;
+  stats1D statH;
+  stats1D statC;
+  std::vector<std::vector<float>> HP0;  // Haplotype posteriors 0
+  std::vector<std::vector<float>> HP1;  // Haplotype posteriors 1
+  std::vector<std::vector<float>> HLC;  // Conditional haplotype likelihoods
+  std::vector<conditioning_set *> COND; // Conditionning states
+  std::vector<imputation_hmm *> HMM;
 
-	std::vector < phasing_hmm * > DMM;
-	std::vector < genotype_bam_caller *> READER_BAM;
+  std::vector<phasing_hmm *> DMM;
+  std::vector<genotype_bam_caller *> READER_BAM;
 
-	//CONSTRUCTOR
-	caller();
-	~caller();
+  // CONSTRUCTOR
+  caller();
+  ~caller();
 
-	//METHODS
-	void phase_individual(const int, const int);
-	void phase_iteration();
-	void phase_loop();
+  // METHODS
+  void phase_individual(const int, const int);
+  void phase_iteration();
+  void phase_loop();
 
-	//PARAMETERS
-	void declare_options();
-	void parse_command_line(std::vector < std::string > &);
-	void check_options();
-	void verbose_options();
-	void verbose_files();
+  // PARAMETERS
+  void declare_options();
+  void parse_command_line(std::vector<std::string> &);
+  void check_options();
+  void verbose_options();
+  void verbose_files();
 
-	//FILE I/O
-	void print_ref_panel_info(const std::string ref_string);
-	void read_files_and_initialise();
-	void setup_mpileup();
-	void read_BAMs();
+  // FILE I/O
+  void print_ref_panel_info(const std::string ref_string);
+  void read_files_and_initialise();
+  void setup_mpileup();
+  void read_BAMs();
 
-	void phase(std::vector < std::string > &);
-	void write_files_and_finalise();
+  void phase(std::vector<std::string> &);
+  void write_files_and_finalise();
 
-	//REGION
-	void buildCoordinates();
+  // REGION
+  void buildCoordinates();
 };
 
-
 #endif
-
-

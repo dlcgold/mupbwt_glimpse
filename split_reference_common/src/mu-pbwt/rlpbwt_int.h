@@ -637,21 +637,27 @@ public:
     int zeros = 0;
     auto skip1 = 0;
     auto skip2 = 0;
-
+    bool warning_out = false;
+    int l_k = 0;
+    for (int ii = 0; ii < H.flag_common.size(); ii++) {
+      if (H.flag_common[ii])
+        l_k++;
+    }
+    std::cout << "mu l_k = " << l_k << "\n";
+    l_k = 0;
+    i_site = 0;
+    int l_k1 = 0;
+    int l_k2 = 0;
     std::vector<int> ploidy_ref_samples;
     while (bcf_sr_next_line(sr)) {
       // vrb.bullet(stb.str(i_site) + " " + stb.str(H.flag_common[i_site]));
-      if (common && !H.flag_common[i_site]) {
-        i_site++;
-        prog_bar += prog_step;
-        vrb.progress(" * mu-PBWT building  ", prog_bar);
-        continue;
-      }
 
-      if (bcf_sr_get_line(sr, 0)->n_allele != 2) {
-        skip1++;
-        continue; // always ref
-      }
+      //
+      // if (bcf_sr_get_line(sr, 0)->n_allele != 2) {
+      //   skip1++;
+      //   i_site++;
+      //   continue; // always ref
+      // }
 
       line_ref = bcf_sr_get_line(sr, 0);
 
@@ -666,10 +672,26 @@ public:
       cref = (vAN[0] - vAC[0]);
 
       if (std::min(calt, cref) == 0 && !keep_mono) {
-        skip2++;
+
+        // i_site++;
         continue;
       }
 
+      if (common && !H.flag_common[i_site]) {
+        i_site++;
+        prog_bar += prog_step;
+        vrb.progress(" * mu-PBWT building  ", prog_bar);
+        l_k1++;
+        continue;
+      } else {
+        l_k2++;
+      }
+      // if (std::min(calt, cref) == 0 && !keep_mono) {
+      //   skip2++;
+      //   i_site++;
+      //   continue;
+      // }
+      //
 #ifdef __XSI__
       ngt_ref = c_xcf_get_genotypes(c_xcf_p, 0, sr->readers[0].header, line_ref,
                                     &gt_arr_ref, &ngt_arr_ref);
@@ -679,7 +701,22 @@ public:
 #endif
       //		ngt_ref = bcf_get_genotypes(sr->readers[0].header,
       // line_ref, &gt_arr_ref, &ngt_arr_ref);
-
+      // if (std::min(calt, cref) == 0 && !keep_mono) {
+      //   if (!warning_out)
+      //     vrb.warning(
+      //         "Monomorphic site found [AC field] in reference panel at "
+      //         "position: " +
+      //         std::to_string(line_ref->pos + 1) +
+      //         ". ALL monomorphic variants will be skipped. Please check your
+      //         " "reference panel file. Use the --keep-monomorphic-ref-sites "
+      //         "option "
+      //         "to force GLIMPSE to use monomorphic sites in the reference "
+      //         "panel. "
+      //         "This warning is shown only once.");
+      //   warning_out = true;
+      //   i_site++;
+      //   continue;
+      // }
       idx_ref_hap = 0;
       this->width++;
       new_column = "";
@@ -748,6 +785,8 @@ public:
       for (auto p : panel) {
         new_column.push_back(p[count]);
       }
+      l_k++;
+
       // vrb.bullet(new_column);
       // std::cerr << new_column << std::endl;
       auto col = rlpbwt_int::build_column(new_column, pref, div, supp_b, supp_e,
@@ -765,6 +804,10 @@ public:
       prog_bar += prog_step;
       vrb.progress(" * mu-PBWT building  ", prog_bar);
     }
+    std::cout << "here l_k = " << l_k << "\n";
+    std::cout << "here l_k1 = " << l_k1 << "\n";
+    std::cout << "here l_k2 = " << l_k2 << "\n";
+
     for (unsigned int i = 0; i < pref.size(); i++) {
       this->last_pref[i] = pref[i];
       this->last_div[i] = div[i];

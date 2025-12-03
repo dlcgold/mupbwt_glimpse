@@ -71,6 +71,7 @@ void ref_haplotype_set::build_sparsePBWT(const variant_map &M,
   int l_hq = 0;
   int last_k = -1;
   int l_all = 0;
+  int l_k = 0;
   for (int k = 0; k < n_tot_sites; k++) {
     if (M.vec_pos[k]->LQ) {
       l_all += flag_common[k];
@@ -78,6 +79,7 @@ void ref_haplotype_set::build_sparsePBWT(const variant_map &M,
     }
 
     if (flag_common[k]) {
+      l_k++;
       if (pbwt_small_A.size() > 0 && !(last_k >= 0 && flag_common[last_k]))
         build_init_common(l_hq);
       const int ref_rac_l = M.vec_pos[k]->cref;
@@ -98,6 +100,7 @@ void ref_haplotype_set::build_sparsePBWT(const variant_map &M,
     last_k = k;
   }
   Ypacked.shrink_to_fit();
+  vrb.bullet("l_k = " + stb.str(l_k));
   vrb.bullet("Size sparsePBWT (" + stb.str(Ypacked.size() / (1024 * 1024)) +
              " Mb)");
   vrb.bullet("sparsePBWT built and compressed (" +
