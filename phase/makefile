@@ -14,7 +14,7 @@ LDFLAG=-O3
 #LDFLAG=-O0
 
 #DYNAMIC LIBRARIES
-DYN_LIBS=-lz -lpthread -lbz2 -llzma -lcurl -lcrypto
+DYN_LIBS=-lz -lpthread -lbz2 -llzma -lcurl -lcrypto -fopenmp
 
 HFILE=$(shell find src -name *.h)
 CFILE=$(shell find src -name *.cpp)
@@ -101,9 +101,9 @@ static_exe: HTSSRC=/home/srubinac/git
 static_exe: HTSLIB_INC=$(HTSSRC)/htslib_minimal
 static_exe: HTSLIB_LIB=$(HTSSRC)/htslib_minimal/libhts.a
 static_exe: BOOST_INC=/usr/include
-static_exe: BOOST_LIB_IO=/usr/local/lib/libboost_iostreams.a
-static_exe: BOOST_LIB_PO=/usr/local/lib/libboost_program_options.a
-static_exe: BOOST_LIB_SE=/usr/local/lib/libboost_serialization.a
+static_exe: BOOST_LIB_IO=/usr/lib64/libboost_iostreams.a
+static_exe: BOOST_LIB_PO=/usr/lib64/libboost_program_options.a
+static_exe: BOOST_LIB_SE=/usr/lib64/libboost_serialization.a
 
 static_exe: $(EXEFILE)
 
@@ -111,13 +111,13 @@ static_exe: $(EXEFILE)
 all: desktop
 	
 $(BFILE): $(OFILE)
-	$(CXX) $(LDFLAG) $^ -lhts -lsdsl $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
+	$(CXX) $(LDFLAG) $^ -lhts -lsdsl -fopenmp $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
 
 $(EXEFILE): $(OFILE)
-	$(CXX) $(LDFLAG) -static -static-libgcc -static-libstdc++ -pthread -o $(EXEFILE) $^ -lhts -lsdsl $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) -Wl,-Bstatic $(DYN_LIBS)
+	$(CXX) $(LDFLAG) -static-libgcc -static-libstdc++ -pthread -fopenmp -o $(EXEFILE) $^ -lhts -lsdsl -fopenmp $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(DYN_LIBS)
 
 obj/%.o: %.cpp $(HFILE)
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -lhts -lsdsl -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -lhts -lsdsl -fopenmp -I$(BOOST_INC)
 
 clean: 
 	rm -f obj/*.o $(BFILE)

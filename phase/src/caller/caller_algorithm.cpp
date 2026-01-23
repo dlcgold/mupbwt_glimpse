@@ -24,7 +24,7 @@
  ******************************************************************************/
 
 #include <caller/caller_header.h>
-
+#include <omp.h>
 void *phase_callback(void *ptr) {
   caller *S = static_cast<caller *>(ptr);
   int id_worker, id_job;
@@ -118,6 +118,12 @@ void caller::phase_iteration() {
 }
 
 void caller::phase_loop() {
+  if (use_mu) {
+    const char *env = std::getenv("OMP_NUM_THREADS");
+    if (env) {
+      omp_set_num_threads(std::atoi(env));
+    }
+  }
   // First Iteration
   current_stage = STAGE_INIT;
   vrb.title("Initializing iteration");
@@ -139,6 +145,7 @@ void caller::phase_loop() {
   //                  V.input_gregion, 1);
   // mupbwt = mu;
   std::vector<int> sites;
+
   vrb.bullet("mu-PBWT: " + stb.str(mupbwt.height) + " haplotypes and " +
              stb.str(mupbwt.width) + " variants");
   for (auto a : H.pbwt_grp) {
@@ -149,6 +156,7 @@ void caller::phase_loop() {
   //        std::cerr << mupbwt.get_row(i) << "\n";
   //    }
 
+  int n_q = 0;
   vrb.bullet("PBWT sites " + stb.str(sites.size()));
   for (int iter = 0; iter < nBurnin; iter++) {
     vrb.title("Burn-in iteration [" + stb.str(iter + 1) + "/" +
@@ -210,7 +218,7 @@ void caller::phase_loop() {
       //                    std::cerr << q << "\n";
       //                }
       //            }
-
+      n_q = queries.size();
       if (!use_smems && !use_mpsc) {
         H.matchHapsFromMuPBWT(mupbwt, V, false, sites, queries);
       } else if (use_smems && !use_mpsc) {
@@ -221,7 +229,11 @@ void caller::phase_loop() {
     } else {
       H.matchHapsFromCompressedPBWTSmall(V, false);
     }
-
+    for (int i = 0; i < H.pbwt_states[0].size(); i++) {
+      vrb.bullet("after extraction pbwt_states: " + stb.str(n_q) +
+                 " queries, " + stb.str(i) + " depth, " +
+                 stb.str(H.pbwt_states[0][i].size()) + " haplotypes");
+    }
     //        for (int i = 0; i < H.pbwt_states[0].size(); i++) {
     //            vrb.bullet("after extraction pbwt_states: " +
     //                       stb.str(H.pbwt_states.size()) +
@@ -230,18 +242,18 @@ void caller::phase_loop() {
     //                       stb.str(H.pbwt_states[0][i].size()) + "
     //                       haplotypes");
     //        }
-    //        for (auto &pbwt_state: H.pbwt_states) {
-    //            auto st = 0;
-    //            for (auto &i: pbwt_state) {
-    //                std::cout << st << "(" << i.size() << "):\t";
-    //                for (int j: i) {
-    //                    std::cout << j << "\t";
-    //                }
-    //                std::cout << "\n------------------------" << std::endl;
-    //                st++;
-    //            }
-    //            std::cout << "\n++++++++++++++++++++++++++++" << std::endl;
-    //        }
+    // for (auto &pbwt_state : H.pbwt_states) {
+    //   auto st = 0;
+    //   for (auto &i : pbwt_state) {
+    //     std::cout << st << "(" << i.size() << "):\t";
+    //     for (int j : i) {
+    //       std::cout << j << "\t";
+    //     }
+    //     std::cout << "\n------------------------" << std::endl;
+    //     st++;
+    //   }
+    //   std::cout << "\n++++++++++++++++++++++++++++" << std::endl;
+    // }
     current_stage = STAGE_RESTRICT;
     phase_iteration();
     current_stage = STAGE_BURN;
@@ -305,6 +317,7 @@ void caller::phase_loop() {
         }
         queries.push_back(query);
       }
+      n_q = queries.size();
       if (!use_smems && !use_mpsc) {
         H.matchHapsFromMuPBWT(mupbwt, V, false, sites, queries);
       } else if (use_smems && !use_mpsc) {
@@ -316,10 +329,9 @@ void caller::phase_loop() {
       H.matchHapsFromCompressedPBWTSmall(V, false);
     }
     for (int i = 0; i < H.pbwt_states[0].size(); i++) {
-      vrb.bullet(
-          "after extraction pbwt_states: " + stb.str(H.pbwt_states.size()) +
-          " queries, " + stb.str(H.pbwt_states[0].size()) + " depth, " +
-          stb.str(H.pbwt_states[0][i].size()) + " haplotypes");
+      vrb.bullet("after extraction pbwt_states: " + stb.str(n_q) +
+                 " queries, " + stb.str(i) + " depth, " +
+                 stb.str(H.pbwt_states[0][i].size()) + " haplotypes");
     }
     phase_iteration();
   }

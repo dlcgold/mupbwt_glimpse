@@ -102,10 +102,13 @@ static_exe: HTSSRC=/home/srubinac/git
 static_exe: HTSLIB_INC=$(HTSSRC)/htslib_minimal
 static_exe: HTSLIB_LIB=$(HTSSRC)/htslib_minimal/libhts.a
 static_exe: BOOST_INC=/usr/include
-static_exe: BOOST_LIB_IO=/usr/local/lib/libboost_iostreams.a
-static_exe: BOOST_LIB_PO=/usr/local/lib/libboost_program_options.a
-static_exe: BOOST_LIB_SE=/usr/local/lib/libboost_serialization.a
+# static_exe: BOOST_LIB_IO=/usr/local/lib/libboost_iostreams.a
+# static_exe: BOOST_LIB_PO=/usr/local/lib/libboost_program_options.a
+# static_exe: BOOST_LIB_SE=/usr/local/lib/libboost_serialization.a
 
+static_exe: BOOST_LIB_IO=/usr/lib64/libboost_iostreams.a
+static_exe: BOOST_LIB_PO=/usr/lib64/libboost_program_options.a
+static_exe: BOOST_LIB_SE=/usr/lib64/libboost_serialization.a
 static_exe: $(EXEFILE)
 
 #COMPILATION RULES
@@ -115,7 +118,7 @@ $(BFILE): $(OFILE)
 	$(CXX) $(LDFLAG) $^ -lhts $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
 
 $(EXEFILE): $(OFILE)
-	$(CXX) $(LDFLAG) -static -static-libgcc -static-libstdc++ -pthread -o $(EXEFILE) $^  -lhts $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) -Wl,-Bstatic $(DYN_LIBS)
+	$(CXX) $(LDFLAG) -static-libgcc -static-libstdc++ -pthread -o $(EXEFILE) $^  -lhts $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(DYN_LIBS)
 
 obj/%.o: %.cpp $(HFILE)
 	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -lhts -I$(BOOST_INC)
