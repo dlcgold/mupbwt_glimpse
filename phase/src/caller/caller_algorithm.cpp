@@ -122,10 +122,9 @@ void caller::phase_loop() {
     const char *env = std::getenv("OMP_NUM_THREADS");
     if (env) {
       omp_set_num_threads(std::atoi(env));
+    } else {
+      omp_set_num_threads(options["threads"].as<int>());
     }
-    // else{
-    //    omp_set_num_threads(H.num);
-    // }
   }
   // First Iteration
   current_stage = STAGE_INIT;
