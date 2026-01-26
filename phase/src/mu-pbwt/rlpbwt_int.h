@@ -1180,7 +1180,7 @@ public:
       }
       down_row = phi_res.value();
       auto tmp_len = this->phi->plcp(down_row, curr_col + 1);
-      if (tmp_len >= 2)
+      if (tmp_len >= len / 10)
         haplos_l.push_back({down_row, tmp_len});
       else
         break;
@@ -1219,7 +1219,7 @@ public:
       }
       up_row = phi_res.value();
       auto tmp_len = this->phi->plcp(start_row, curr_col + 1);
-      if (tmp_len >= 2)
+      if (tmp_len >= len / 10)
         haplos_l.push_back({up_row, tmp_len});
       else
         break;
