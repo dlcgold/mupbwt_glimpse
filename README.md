@@ -1,6 +1,7 @@
 # mupbwt_glimpse
 
 ```shell
+make
 ./GLIMPSE2_simulate_bams_static --input-vcf target_unmasked_100_msprime_sim.bcf --read-length 150 --contig 1 -O reads100_150_default --thread 7
 
 ./split_reference/bin/GLIMPSE2_split_reference  --reference 10k/ref_panel_10k_msprime_sim.bcf --input-region 1:77-9999973 --output-region 1:77-9999973 --output 10k/ref_panel_10k
