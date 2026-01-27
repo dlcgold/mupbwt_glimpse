@@ -473,9 +473,11 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
       std::vector<int>().swap(pbwt_states[e][j]);
   // pbwt_states[e][j].clear();
   // auto q = 0;
+  unsigned int ex = 0;
+
 #pragma omp parallel for default(none)                                         \
     shared(queries, main_iteration, M, pbwt_states, mupbwt, sites,             \
-               tar_hapid2ind, std::cout, vrb, stb)
+               tar_hapid2ind, std::cout, vrb, stb, ex)
   // for (const auto &query : queries) {
   for (size_t q = 0; q < queries.size(); ++q) {
     auto query = queries[q];
@@ -487,103 +489,58 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
     auto ms_supp = ms_tot.second;
     // initialize struct for matches
     ms_matches ms_matches;
-    for (unsigned int i = 0; i < ms.len.size(); i++) {
-      if (ms.len[i] < query.size() / 100)
-        continue;
+    std::vector<std::pair<unsigned int, unsigned int>> short_v;
+    std::vector<unsigned int> short_supp;
+    std::vector<unsigned int> short_col;
 
-      if ((i != ms.len.size() - 1 && ms.len[i] > 0 &&
-           ms.len[i] >= ms.len[i + 1]) ||
-          (i == ms.len.size() - 1 && ms.len[i] != 0)) {
-        ms_matches.basic_matches.emplace_back(ms.row[i], ms.len[i], i);
+    // double sum_len = 0;
+    // unsigned int c_len = 0;
+    // for (unsigned int i = 0; i < ms.len.size(); i++) {
+    //   if ((i != ms.len.size() - 1 && ms.len[i] > 0 &&
+    //        ms.len[i] >= ms.len[i + 1]) ||
+    //       (i == ms.len.size() - 1 && ms.len[i] != 0)) {
+    //     sum_len += ms.len[i];
+    //     c_len++;
+    //   }
+    // }
+    // double avg_len = sum_len / (double)c_len;
+    // avg_len *= 2;
+    //  vrb.bullet("Avg smem len = " + stb.str(avg_len));
+    //
+    //  vrb.bullet("Now short smem len = " + stb.str(query.size() / 1000));
+    //  vrb.bullet("Now smem len = " + stb.str(query.size() / 100));
+    //
+    std::unordered_map<int, double> haplo_score;
+
+    for (unsigned int i = 0; i < ms.len.size(); i++) {
+      if (ms.len[i] < query.size() / 1000) {
+        short_v.push_back({ms.row[i], ms.len[i]});
+        short_supp.push_back(ms_supp[i]);
+        short_col.push_back(i);
+      } else if (ms.len[i] < query.size() / 100) {
+        haplo_score[ms.row[i]] += static_cast<double>(ms.len[i]) / query.size();
+      } else {
+        // if (ms.len[i] < avg_len / 10) {
+        //   short_v.push_back({ms.row[i], ms.len[i]});
+        //   short_supp.push_back(ms_supp[i]);
+        //   short_col.push_back(i);
+        // }
+        // if (i != ms.len.size() - 1 && ms.len[i] < avg_len * 10)
+        //   continue;
+
+        if ((i != ms.len.size() - 1 && ms.len[i] > 0 &&
+             ms.len[i] >= ms.len[i + 1]) ||
+            (i == ms.len.size() - 1 && ms.len[i] != 0)) {
+          ms_matches.basic_matches.emplace_back(ms.row[i], ms.len[i], i);
+        }
       }
     }
+    short_v.push_back({ms.row[query.size() - 1], ms.len[query.size() - 1]});
+    short_supp.push_back(ms_supp[query.size() - 1]);
+    short_col.push_back(query.size() - 1);
+
     mupbwt.extend_haplos(ms_matches, ms_supp);
-    // std::cout << " for query " << q << " :\n";
 
-    // std::cout << query << "\nind:\t";
-    // //std::cout << ms;
-    // for (unsigned int i = 0; i < ms.row.size(); i++) {
-    //   std::cout << i << "\t";
-    // }
-    // std::cout << "\npos:\t";
-    // for (auto e: ms.row) {
-    //   std::cout << e << "\t";
-    // }
-    // std::cout << "\nlen:\t";
-    // for (auto e: ms.len) {
-    //   std::cout << e << "\t";
-    // }
-    // std::cout << "\nque:\t";
-    // for(auto c: query){
-    //   std::cout << c << "\t";
-    // }
-    // std::cout << ms_matches;
-    //
-
-    //     std::set<unsigned int> unique_haplos;
-    //     for (unsigned int j = 0; j < ms_matches.basic_matches.size(); j++) {
-    //       if (std::get<1>(ms_matches.basic_matches[j]) < query.size() / 50)
-    //         continue;
-    //       for (auto h : ms_matches.haplos[j]) {
-    //         unique_haplos.insert(h);
-    //       }
-    //     }
-    // #pragma omp critical
-    //     {
-    //       for (const auto &h : unique_haplos) {
-    //         pbwt_states[tar_hapid2ind[q]][0].push_back(h);
-    //       }
-    //     }
-    //
-    //     std::unordered_map<int, size_t> haplo_freq;
-    //
-    //     for (unsigned int j = 0; j < ms_matches.basic_matches.size(); j++) {
-    //       if (std::get<1>(ms_matches.basic_matches[j]) < query.size() / 100)
-    //         continue;
-    //
-    //       for (auto h : ms_matches.haplos[j]) {
-    //         haplo_freq[h]++;
-    //       }
-    //     }
-    //
-    //     vrb.bullet("selcted ") std::unordered_map<size_t, std::vector<int>>
-    //         freq2haplos;
-    //
-    //     for (const auto &[h, f] : haplo_freq) {
-    //       freq2haplos[f].push_back(h);
-    //     }
-    //     std::vector<size_t> freqs;
-    //     freqs.reserve(freq2haplos.size());
-    //
-    //     for (const auto &[f, _] : freq2haplos)
-    //       freqs.push_back(f);
-    //
-    //     std::sort(freqs.begin(), freqs.end(), std::greater<size_t>());
-    //     // for (size_t d = 0; d < freqs.size(); d++) {
-    //     //
-    //     //   size_t f = freqs[d];
-    //     //
-    //     //   std::ostringstream oss;
-    //     //   oss << "  d=" << d << " freq=" << f
-    //     //       << " nhaplos=" << freq2haplos[f].size() << " : ";
-    //     //
-    //     //   for (int h : freq2haplos[f]) {
-    //     //     oss << h << " ";
-    //     //   }
-    //     //
-    //     //   vrb.bullet(oss.str());
-    //     // }
-    //     for (size_t d = 0; d < freqs.size() && d < pbwt_depth; d++) {
-    // #pragma omp critical
-    //       {
-    //         size_t f = freqs[d];
-    //
-    //         for (int h : freq2haplos[f]) {
-    //           pbwt_states[tar_hapid2ind[q]][d].push_back(h);
-    //         }
-    //       }
-    //    }
-    std::unordered_map<int, double> haplo_score;
     double scale = 1.0;
     for (unsigned int j = 0; j < ms_matches.basic_matches.size(); j++) {
       size_t smem_len = std::get<1>(ms_matches.basic_matches[j]);
@@ -602,12 +559,33 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
         double contrib = static_cast<double>(smem_len) / query.size();
 
         for (auto h : ms_matches.haplos[j]) {
+          // if (smem_len > 10) {
           haplo_score[h] += contrib * contrib;
-
+          // }
+          // else {
+          //   haplo_score[h] += contrib * contrib * contrib;
+          //   ex++;
+          // }
           // if (haplo_score[h] > 1.0)
           //   haplo_score[h] = 1.0;
         }
         // vrb.bullet("adding " + stb.str(std::round(c + 10.0) / 10.0));
+      }
+    }
+
+    for (unsigned int j = 0; j < short_v.size(); j++) {
+      auto s = short_v[j];
+      auto haplos = mupbwt.get_similar_haplos_len(short_supp[j], short_col[j],
+                                                  s.first, s.second, K);
+
+      double contrib = static_cast<double>(s.second) / query.size();
+      for (auto h : haplos.first) {
+        haplo_score[h] += contrib;
+        ex++;
+      }
+      for (auto h : haplos.second) {
+        haplo_score[h] += contrib;
+        ex++;
       }
     }
 
@@ -742,6 +720,7 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
       }
     }
   }
+  vrb.bullet("Used " + stb.str(ex / queries.size()) + " extra smems");
 
   vrb.bullet("Mu-PBWT selection (" + stb.str(tac.rel_time() * 1.0 / 1000, 2) +
              "s)");

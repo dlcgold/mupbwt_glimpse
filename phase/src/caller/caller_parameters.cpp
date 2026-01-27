@@ -563,11 +563,12 @@ void caller::verbose_options() {
                no_yes[options.count("ignore-orientation")] + "]");
     vrb.bullet("Illumina-1.3+        : [" +
                no_yes[options.count("illumina13")] + "]");
-    vrb.bullet("mupbwt        : [" + no_yes[options.count("mupbwt")] + "]");
-    vrb.bullet("mupbwt-smems        : [" +
-               no_yes[options.count("mupbwt-smems")] + "]");
-    vrb.bullet("mupbwt-mpsc        : [" + no_yes[options.count("mupbwt-mpsc")] +
+    vrb.bullet("mupbwt               : [" + no_yes[options.count("mupbwt")] +
                "]");
+    vrb.bullet("mupbwt-smems         : [" +
+               no_yes[options.count("mupbwt-smems")] + "]");
+    vrb.bullet("mupbwt-mpsc          : [" +
+               no_yes[options.count("mupbwt-mpsc")] + "]");
     vrb.bullet("mupbwt-common        : [" +
                no_yes[options.count("mupbwt-common")] + "]");
   }
