@@ -518,7 +518,21 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
         short_supp.push_back(ms_supp[i]);
         short_col.push_back(i);
       } else if (ms.len[i] < query.size() / 100) {
-        haplo_score[ms.row[i]] += static_cast<double>(ms.len[i]) / query.size();
+        // haplo_score[ms.row[i]] += static_cast<double>(ms.len[i]) /
+        // query.size();
+        auto haplos = mupbwt.get_similar_haplos_len(ms_supp[i], i, ms.row[i],
+                                                    ms.len[i], 1);
+
+        double contrib = static_cast<double>(ms.len[i]) / query.size();
+        for (auto h : haplos.first) {
+          haplo_score[h] += contrib;
+          ex++;
+        }
+        for (auto h : haplos.second) {
+          haplo_score[h] += contrib;
+          ex++;
+        }
+
       } else {
         // if (ms.len[i] < avg_len / 10) {
         //   short_v.push_back({ms.row[i], ms.len[i]});
