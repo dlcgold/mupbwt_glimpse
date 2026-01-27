@@ -473,11 +473,10 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
       std::vector<int>().swap(pbwt_states[e][j]);
   // pbwt_states[e][j].clear();
   // auto q = 0;
-  unsigned int ex = 0;
 
 #pragma omp parallel for default(none)                                         \
     shared(queries, main_iteration, M, pbwt_states, mupbwt, sites,             \
-               tar_hapid2ind, std::cout, vrb, stb, ex)
+               tar_hapid2ind, std::cout, vrb, stb)
   // for (const auto &query : queries) {
   for (size_t q = 0; q < queries.size(); ++q) {
     auto query = queries[q];
@@ -512,78 +511,99 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
     //
     std::unordered_map<int, double> haplo_score;
 
+    for (unsigned int i = 0; i < mupbwt.height; i++) {
+      haplo_score[i] = 0;
+    }
     for (unsigned int i = 0; i < ms.len.size(); i++) {
-      if (ms.len[i] < query.size() / 1000) {
-        short_v.push_back({ms.row[i], ms.len[i]});
-        short_supp.push_back(ms_supp[i]);
-        short_col.push_back(i);
-      } else if (ms.len[i] < query.size() / 100) {
-        // haplo_score[ms.row[i]] += static_cast<double>(ms.len[i]) /
-        // query.size();
-        auto haplos = mupbwt.get_similar_haplos_len(ms_supp[i], i, ms.row[i],
-                                                    ms.len[i], 1);
+      // if (i != ms.len.size() - 1 && ms.len[i] > 0 &&
+      //     ms.len[i] >= ms.len[i + 1]) {
+      //   if (ms.len[i] < query.size() / 1000) {
+      //     short_v.push_back({ms.row[i], ms.len[i]});
+      //     short_supp.push_back(ms_supp[i]);
+      //     short_col.push_back(i);
+      //   } else if (ms.len[i] < query.size() / 100) {
+      //     // haplo_score[ms.row[i]] += static_cast<double>(ms.len[i]) /
+      //     // query.size();
+      //     auto haplos = mupbwt.get_similar_haplos_len(ms_supp[i], i,
+      //     ms.row[i],
+      //                                                 ms.len[i], 1);
+      //
+      //     double contrib = static_cast<double>(ms.len[i]) / query.size();
+      //     for (auto h : haplos.first) {
+      //       haplo_score[h] += contrib;
+      //       ex++;
+      //     }
+      //     for (auto h : haplos.second) {
+      //       haplo_score[h] += contrib;
+      //       ex++;
+      //     }
+      //
+      //   } else {
+      //     ms_matches.basic_matches.emplace_back(ms.row[i], ms.len[i], i);
+      //   }
+      // }
+      const auto qsize = query.size();
+      const auto thr_short = qsize / 1000;
+      const auto thr_medium = qsize / 100;
 
-        double contrib = static_cast<double>(ms.len[i]) / query.size();
-        for (auto h : haplos.first) {
-          haplo_score[h] += contrib;
-          ex++;
-        }
-        for (auto h : haplos.second) {
-          haplo_score[h] += contrib;
-          ex++;
-        }
+      if (i != ms.len.size() - 1 && ms.len[i] > 0 &&
+          ms.len[i] >= ms.len[i + 1]) {
 
-      } else {
-        // if (ms.len[i] < avg_len / 10) {
-        //   short_v.push_back({ms.row[i], ms.len[i]});
-        //   short_supp.push_back(ms_supp[i]);
-        //   short_col.push_back(i);
-        // }
-        // if (i != ms.len.size() - 1 && ms.len[i] < avg_len * 10)
-        //   continue;
+        const auto len = ms.len[i];
+        const auto row = ms.row[i];
+        const auto supp = ms_supp[i];
 
-        if ((i != ms.len.size() - 1 && ms.len[i] > 0 &&
-             ms.len[i] >= ms.len[i + 1]) ||
-            (i == ms.len.size() - 1 && ms.len[i] != 0)) {
-          ms_matches.basic_matches.emplace_back(ms.row[i], ms.len[i], i);
+        if (len < thr_short) {
+
+          short_v.push_back({row, len});
+          short_supp.push_back(supp);
+          short_col.push_back(i);
+
+        } else if (len < thr_medium) {
+          // haplo_score[row] += static_cast<double>(len) / query.size();
+
+          auto haplos = mupbwt.get_similar_haplos_len(supp, i, row, len, 1);
+
+          const double contrib = static_cast<double>(len) / qsize;
+
+          for (auto h : haplos.first) {
+            haplo_score[h] += contrib;
+          }
+          for (auto h : haplos.second) {
+            haplo_score[h] += contrib;
+          }
+
+        } else {
+          ms_matches.basic_matches.emplace_back(row, len, i);
         }
       }
     }
+    // if (ms.len[query.size() - 1] > 0 && ms.len[query.size() - 1] < 100) {
+    //   short_v.push_back({ms.row[query.size() - 1], ms.len[query.size() -
+    //   1]}); short_supp.push_back(ms_supp[query.size() - 1]);
+    //   short_col.push_back(query.size() - 1);
+    // }
+    // if (ms.len[query.size() - 1] >= 100) {
+    //   ms_matches.basic_matches.emplace_back(
+    //       ms.row[query.size() - 1], ms.len[query.size() - 1], query.size() -
+    //       1);
+    // }
     short_v.push_back({ms.row[query.size() - 1], ms.len[query.size() - 1]});
     short_supp.push_back(ms_supp[query.size() - 1]);
     short_col.push_back(query.size() - 1);
-
     mupbwt.extend_haplos(ms_matches, ms_supp);
 
     double scale = 1.0;
     for (unsigned int j = 0; j < ms_matches.basic_matches.size(); j++) {
       size_t smem_len = std::get<1>(ms_matches.basic_matches[j]);
 
-      // if (smem_len < query.size() / 100)
-      //   continue;
-
       for (auto h : ms_matches.haplos[j]) {
-        // haplo_score[h] += 1.0 + std::log1p(smem_len);
-        // haplo_score[h] += 1.0 + static_cast<double>(smem_len) / query.size();
-        // auto c = 1.0 + static_cast<double>(smem_len) / query.size();
-        // haplo_score[h] += std::round(c + 100.0) / 100.0;
-        // if (smem_len < query.size() / 100)
-        //   continue;
 
         double contrib = static_cast<double>(smem_len) / query.size();
 
         for (auto h : ms_matches.haplos[j]) {
-          // if (smem_len > 10) {
           haplo_score[h] += contrib * contrib;
-          // }
-          // else {
-          //   haplo_score[h] += contrib * contrib * contrib;
-          //   ex++;
-          // }
-          // if (haplo_score[h] > 1.0)
-          //   haplo_score[h] = 1.0;
         }
-        // vrb.bullet("adding " + stb.str(std::round(c + 10.0) / 10.0));
       }
     }
 
@@ -595,46 +615,12 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
       double contrib = static_cast<double>(s.second) / query.size();
       for (auto h : haplos.first) {
         haplo_score[h] += contrib;
-        ex++;
       }
       for (auto h : haplos.second) {
         haplo_score[h] += contrib;
-        ex++;
       }
     }
 
-    // std::unordered_map<int, size_t> haplo_score_disc;
-    // for (const auto &[h, s] : haplo_score) {
-    //   haplo_score_disc[h] = static_cast<size_t>(s / scale);
-    // }
-    // std::unordered_map<size_t, std::vector<int>> score2haplos;
-    // for (const auto &[h, s_disc] : haplo_score_disc) {
-    //   score2haplos[s_disc].push_back(h);
-    // }
-    //     std::unordered_map<double, std::vector<int>> score2haplos;
-    //     for (auto &[h, s] : haplo_score) {
-    //       s = std::round(s * 10.0) / 10.0;
-    //       score2haplos[s].push_back(h);
-    //     }
-    //     // for (const auto &[h, s] : haplo_score) {
-    //     //   score2haplos[s].push_back(h);
-    //     // }
-    //     std::vector<size_t> scores;
-    //     scores.reserve(score2haplos.size());
-    //     for (const auto &[s, _] : score2haplos)
-    //       scores.push_back(s);
-    //
-    //     std::sort(scores.begin(), scores.end(), std::greater<size_t>());
-    //
-    //     for (size_t d = 0; d < scores.size() && d < pbwt_depth; d++) {
-    //
-    //       size_t s = scores[d];
-    // #pragma omp critical
-    //       {
-    //         for (int h : score2haplos[s])
-    //           pbwt_states[tar_hapid2ind[q]][d].push_back(h);
-    //       }
-    //     }
     for (auto &[h, s] : haplo_score) {
       if (s > 1.0)
         s = 1.0;
@@ -680,45 +666,8 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
 
       idx = end;
     }
-    //     double base_threshold = 0.99;
-    //     double top_threshold = 1.0;
-    //     double step = 0.01;
-    //
-    //     int c_p = 0;
-    //     for (size_t d = 0; d < pbwt_depth - 1; d++) {
-    //
-    //       double u_t, l_t;
-    //       if (d == 0) {
-    //         u_t = top_threshold;
-    //         l_t = base_threshold;
-    //       } else {
-    //         u_t = base_threshold - (d - 1) * step;
-    //         l_t = base_threshold - d * step;
-    //       }
-    //       // if (l_t < 0.0)
-    //       //   threshold = 0.0;
-    //
-    // #pragma omp critical
-    //       {
-    //         for (const auto &[h, s] : haplo_score) {
-    //           if (s <= u_t && s > l_t) {
-    //             pbwt_states[tar_hapid2ind[q]][d].push_back(h);
-    //             c_p++;
-    //           }
-    //         }
-    //       }
-    //     }
 
     if (c_p == 0) {
-      // std::vector<std::pair<int, double>> haplo_vec;
-      // haplo_vec.reserve(haplo_score.size());
-      //
-      // for (const auto &[h, s] : haplo_score)
-      //   haplo_vec.emplace_back(h, s);
-      //
-      // std::sort(
-      //     haplo_vec.begin(), haplo_vec.end(),
-      //     [](const auto &a, const auto &b) { return a.second > b.second; });
 
 #pragma omp critical
       {
@@ -734,7 +683,6 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
       }
     }
   }
-  vrb.bullet("Used " + stb.str(ex / queries.size()) + " extra smems");
 
   vrb.bullet("Mu-PBWT selection (" + stb.str(tac.rel_time() * 1.0 / 1000, 2) +
              "s)");
