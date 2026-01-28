@@ -483,10 +483,13 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
   // unsigned int c_mh = 0;
   // unsigned int c_lh = 0;
 
-#pragma omp parallel for default(none) shared(                                 \
-        queries, main_iteration, M, pbwt_states, mupbwt, sites, tar_hapid2ind, \
-            std::cout, vrb, stb, c_s, c_m, c_l, c_sh, c_mh, c_lh, c_o)
+  // #pragma omp parallel for default(none) shared(                                 \
+//         queries, main_iteration, M, pbwt_states, mupbwt, sites, tar_hapid2ind, \
+//             std::cout, vrb, stb, c_s, c_m, c_l, c_sh, c_mh, c_lh, c_o)
   // for (const auto &query : queries) {
+#pragma omp parallel for default(none)                                         \
+    shared(queries, main_iteration, M, pbwt_states, mupbwt, sites,             \
+               tar_hapid2ind, std::cout, vrb, stb)
   for (size_t q = 0; q < queries.size(); ++q) {
     auto query = queries[q];
     auto ms_tot = mupbwt.compute_ms(query);
