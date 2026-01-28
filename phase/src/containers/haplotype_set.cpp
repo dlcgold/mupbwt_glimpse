@@ -32,6 +32,7 @@
 #include <boost/serialization/vector.hpp>
 #include <cmath>
 #include <containers/haplotype_set.h>
+#include <cstddef>
 #include <iostream>
 #include <math.h>
 #include <objects/genotype.h>
@@ -473,10 +474,18 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
       std::vector<int>().swap(pbwt_states[e][j]);
   // pbwt_states[e][j].clear();
   // auto q = 0;
+  //
+  // unsigned int c_s = 0;
+  // unsigned int c_o = 0;
+  // unsigned int c_m = 0;
+  // unsigned int c_l = 0;
+  // unsigned int c_sh = 0;
+  // unsigned int c_mh = 0;
+  // unsigned int c_lh = 0;
 
-#pragma omp parallel for default(none)                                         \
-    shared(queries, main_iteration, M, pbwt_states, mupbwt, sites,             \
-               tar_hapid2ind, std::cout, vrb, stb)
+#pragma omp parallel for default(none) shared(                                 \
+        queries, main_iteration, M, pbwt_states, mupbwt, sites, tar_hapid2ind, \
+            std::cout, vrb, stb, c_s, c_m, c_l, c_sh, c_mh, c_lh, c_o)
   // for (const auto &query : queries) {
   for (size_t q = 0; q < queries.size(); ++q) {
     auto query = queries[q];
@@ -491,61 +500,24 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
     std::vector<std::pair<unsigned int, unsigned int>> short_v;
     std::vector<unsigned int> short_supp;
     std::vector<unsigned int> short_col;
-
-    // double sum_len = 0;
-    // unsigned int c_len = 0;
-    // for (unsigned int i = 0; i < ms.len.size(); i++) {
-    //   if ((i != ms.len.size() - 1 && ms.len[i] > 0 &&
-    //        ms.len[i] >= ms.len[i + 1]) ||
-    //       (i == ms.len.size() - 1 && ms.len[i] != 0)) {
-    //     sum_len += ms.len[i];
-    //     c_len++;
-    //   }
-    // }
-    // double avg_len = sum_len / (double)c_len;
-    // avg_len *= 2;
-    //  vrb.bullet("Avg smem len = " + stb.str(avg_len));
-    //
-    //  vrb.bullet("Now short smem len = " + stb.str(query.size() / 1000));
-    //  vrb.bullet("Now smem len = " + stb.str(query.size() / 100));
-    //
     std::unordered_map<int, double> haplo_score;
-
+    unsigned int s_q = 0;
+    bool add = false;
     for (unsigned int i = 0; i < mupbwt.height; i++) {
       haplo_score[i] = 0;
     }
     for (unsigned int i = 0; i < ms.len.size(); i++) {
-      // if (i != ms.len.size() - 1 && ms.len[i] > 0 &&
-      //     ms.len[i] >= ms.len[i + 1]) {
-      //   if (ms.len[i] < query.size() / 1000) {
-      //     short_v.push_back({ms.row[i], ms.len[i]});
-      //     short_supp.push_back(ms_supp[i]);
-      //     short_col.push_back(i);
-      //   } else if (ms.len[i] < query.size() / 100) {
-      //     // haplo_score[ms.row[i]] += static_cast<double>(ms.len[i]) /
-      //     // query.size();
-      //     auto haplos = mupbwt.get_similar_haplos_len(ms_supp[i], i,
-      //     ms.row[i],
-      //                                                 ms.len[i], 1);
-      //
-      //     double contrib = static_cast<double>(ms.len[i]) / query.size();
-      //     for (auto h : haplos.first) {
-      //       haplo_score[h] += contrib;
-      //       ex++;
-      //     }
-      //     for (auto h : haplos.second) {
-      //       haplo_score[h] += contrib;
-      //       ex++;
-      //     }
-      //
-      //   } else {
-      //     ms_matches.basic_matches.emplace_back(ms.row[i], ms.len[i], i);
-      //   }
-      // }
       const auto qsize = query.size();
       const auto thr_short = qsize / 1000;
-      const auto thr_medium = qsize / 100;
+      const auto thr_medium = qsize / 20;
 
+      if (i == sites[s_q]) {
+        short_v.push_back({ms.row[i], ms.len[i]});
+        short_supp.push_back(ms_supp[i]);
+        short_col.push_back(i);
+        // c_o++;
+        s_q++;
+      }
       if (i != ms.len.size() - 1 && ms.len[i] > 0 &&
           ms.len[i] >= ms.len[i + 1]) {
 
@@ -558,23 +530,26 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
           short_v.push_back({row, len});
           short_supp.push_back(supp);
           short_col.push_back(i);
-
+          // c_s++;
         } else if (len < thr_medium) {
           // haplo_score[row] += static_cast<double>(len) / query.size();
-
-          auto haplos = mupbwt.get_similar_haplos_len(supp, i, row, len, 1);
+          // c_m++;
+          auto haplos = mupbwt.get_similar_haplos_len(supp, i, row, len, K);
 
           const double contrib = static_cast<double>(len) / qsize;
 
           for (auto h : haplos.first) {
             haplo_score[h] += contrib;
+            // c_mh++;
           }
           for (auto h : haplos.second) {
             haplo_score[h] += contrib;
+            // c_mh++;
           }
 
         } else {
           ms_matches.basic_matches.emplace_back(row, len, i);
+          // c_l++;
         }
       }
     }
@@ -603,6 +578,7 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
 
         for (auto h : ms_matches.haplos[j]) {
           haplo_score[h] += contrib * contrib;
+          // c_lh++;
         }
       }
     }
@@ -610,14 +586,16 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
     for (unsigned int j = 0; j < short_v.size(); j++) {
       auto s = short_v[j];
       auto haplos = mupbwt.get_similar_haplos_len(short_supp[j], short_col[j],
-                                                  s.first, s.second, K);
+                                                  s.first, s.second, K / 2);
 
       double contrib = static_cast<double>(s.second) / query.size();
       for (auto h : haplos.first) {
         haplo_score[h] += contrib;
+        // c_sh++;
       }
       for (auto h : haplos.second) {
         haplo_score[h] += contrib;
+        // c_sh++;
       }
     }
 
@@ -683,7 +661,11 @@ void haplotype_set::matchHapsFromMuPBWTSMEMS(
       }
     }
   }
-
+  // vrb.bullet("c_s = " + stb.str(c_s) + ", c_m = " + stb.str(c_m) +
+  //            ", c_l = " + stb.str(c_l) + ", c_o = " + stb.str(c_o));
+  // vrb.bullet("c_sh = " + stb.str(c_sh) + ", c_mh = " + stb.str(c_mh) +
+  //            ", c_lh = " + stb.str(c_lh));
+  //
   vrb.bullet("Mu-PBWT selection (" + stb.str(tac.rel_time() * 1.0 / 1000, 2) +
              "s)");
 }
