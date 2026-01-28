@@ -7,9 +7,10 @@ dummy_build_folder_bin := $(shell mkdir -p bin)
 dummy_build_folder_obj := $(shell mkdir -p obj)
 
 #COMPILER & LINKER FLAGS
-CXXFLAG=-O3 -mavx2 -mfma -mfma -Wno-ignored-attributes
+CXXFLAG=-O3 
+#-mavx2 -mfma -mfma -Wno-ignored-attributes
 LDFLAG=-O3
-
+LDFLAG += -Wl,-rpath,'$$ORIGIN/../../boost/lib'
 #CXXFLAG=-O0 -g -mavx2 -mfma -Wno-ignored-attributes
 #LDFLAG=-O0
 
@@ -58,67 +59,23 @@ ifeq ($(BGEN_SUPPORT),YES)
 endif
 
 
-#CONDITIONAL PATH DEFINITON
 
-system: DYN_LIBS=-lz -lpthread -lbz2 -llzma
-system: HTSSRC=/usr/local
-system: HTSLIB_INC=$(HTSSRC)/include/htslib
-system: HTSLIB_LIB=$(HTSSRC)/lib/libhts.a
-system: BOOST_INC=/usr/include
-system: BOOST_LIB_IO=/usr/lib64/libboost_iostreams.so
-system: BOOST_LIB_PO=/usr/lib64/libboost_program_options.so
-system: BOOST_LIB_SE=/usr/lib64/libboost_serialization.so
-system: $(BFILE)
 
-desktop: HTSSRC=/home/srubinac/git
-desktop: HTSLIB_INC=$(HTSSRC)/htslib_minimal
-desktop: HTSLIB_LIB=$(HTSSRC)/htslib_minimal/libhts.a
-desktop: BOOST_INC=/home/srubinac/software/boost_v1.74.0/include
-desktop: BOOST_LIB_IO=/home/srubinac/software/boost_v1.74.0/lib/libboost_iostreams.a
-desktop: BOOST_LIB_PO=/home/srubinac/software/boost_v1.74.0/lib/libboost_program_options.a
-desktop: BOOST_LIB_SE=/home/srubinac/software/boost_v1.74.0/lib/libboost_serialization.a
-desktop: $(BFILE)
-
-olivier: HTSSRC=$(HOME)/Tools
-olivier: HTSLIB_INC=$(HTSSRC)/htslib-1.15
-olivier: HTSLIB_LIB=$(HTSSRC)/htslib-1.15/libhts.a
-olivier: BOOST_INC=/usr/include
-olivier: BOOST_LIB_IO=/usr/lib/x86_64-linux-gnu/libboost_iostreams.a
-olivier: BOOST_LIB_PO=/usr/lib/x86_64-linux-gnu/libboost_program_options.a
-olivier: BOOST_LIB_SE=/usr/lib/x86_64-linux-gnu/libboost_serialization.a
-olivier: $(BFILE)
-
-unil-dcsr: DYN_LIBS=-lz -lpthread -lcrypto $(XZ_ROOT)/lib/liblzma.so $(BZIP2_ROOT)/lib/libbz2.so $(CURL_ROOT)/lib/libcurl.so
-unil-dcsr: HTSSRC=$(HTSLIB_ROOT)
-unil-dcsr: HTSLIB_INC=$(HTSSRC)/include
-unil-dcsr: HTSLIB_LIB=$(HTSSRC)/lib/libhts.a
-unil-dcsr: BOOST_INC=$(BOOST_ROOT)/include
-unil-dcsr: BOOST_LIB_IO=$(BOOST_ROOT)/lib/libboost_iostreams.a
-unil-dcsr: BOOST_LIB_PO=$(BOOST_ROOT)/lib/libboost_program_options.a
-unil-dcsr: BOOST_LIB_SE=$(BOOST_ROOT)/lib/libboost_serialization.a
-unil-dcsr: $(BFILE)
-
-static_exe: HTSSRC=/home/srubinac/git
-static_exe: HTSLIB_INC=$(HTSSRC)/htslib_minimal
-static_exe: HTSLIB_LIB=$(HTSSRC)/htslib_minimal/libhts.a
-static_exe: BOOST_INC=/usr/include
-static_exe: BOOST_LIB_IO=/usr/lib64/libboost_iostreams.a
-static_exe: BOOST_LIB_PO=/usr/lib64/libboost_program_options.a
-static_exe: BOOST_LIB_SE=/usr/lib64/libboost_serialization.a
-
-static_exe: $(EXEFILE)
+BOOST_INC=../boost/include
+BOOST_LIB_IO=../boost/lib/libboost_iostreams.so
+BOOST_LIB_PO=../boost/lib/libboost_program_options.so
+BOOST_LIB_SE=../boost/lib/libboost_serialization.so
+HTSLIB_INC=../htslib
 
 #COMPILATION RULES
-all: desktop
+all: $(BFILE)
 
 $(BFILE): $(OFILE)
-	$(CXX) $(LDFLAG) $^ -lhts $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
+	$(CXX) $(LDFLAG) $^ -I${HTSLIB_INC} -L${HTSLIB_INC} -lhts $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
 
-$(EXEFILE): $(OFILE)
-	$(CXX) $(LDFLAG) -static-libgcc -static-libstdc++ -pthread -o $(EXEFILE) $^ -lhts $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE)  $(DYN_LIBS)
 
 obj/%.o: %.cpp $(HFILE)
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -lhts -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -I${HTSLIB_INC} -L${HTSLIB_INC} -lhts -I$(BOOST_INC)
 
 clean: 
 	rm -f obj/*.o $(BFILE)
