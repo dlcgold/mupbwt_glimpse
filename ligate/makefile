@@ -73,7 +73,7 @@ HTSLIB_INC=../htslib
 all: $(BFILE)
 
 $(BFILE): $(OFILE)
-	$(CXX) $(LDFLAG) $^  -L${HTSLIB_INC} -lhts-fopenmp $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
+	$(CXX) $(LDFLAG) $^  -L${HTSLIB_INC} -lhts -fopenmp $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
 
 obj/%.o: %.cpp $(HFILE)
 	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -I${HTSLIB_INC} -fopenmp -I$(BOOST_INC)
