@@ -10,7 +10,9 @@ dummy_build_folder_obj := $(shell mkdir -p obj)
 CXXFLAG=-O3 
 #-mavx2 -mfma -mfma -Wno-ignored-attributes
 LDFLAG=-O3
-LDFLAG += -Wl,-rpath,'$$ORIGIN/../../boost/lib'
+LDFLAG += \
+  -Wl,-rpath,'$$ORIGIN/../../boost/lib' \
+  -Wl,-rpath,'$$ORIGIN/../../htslib'
 #CXXFLAG=-O0 -g -mavx2 -mfma -Wno-ignored-attributes
 #LDFLAG=-O0
 
@@ -71,11 +73,10 @@ HTSLIB_INC=../htslib
 all: $(BFILE)
 
 $(BFILE): $(OFILE)
-	$(CXX) $(LDFLAG) $^ -I${HTSLIB_INC} -L${HTSLIB_INC} -lhts $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
-
+	$(CXX) $(LDFLAG) $^  -L${HTSLIB_INC} -lhts -fopenmp $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
 
 obj/%.o: %.cpp $(HFILE)
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -I${HTSLIB_INC} -L${HTSLIB_INC} -lhts -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -I${HTSLIB_INC} -fopenmp -I$(BOOST_INC)
 
 clean: 
 	rm -f obj/*.o $(BFILE)

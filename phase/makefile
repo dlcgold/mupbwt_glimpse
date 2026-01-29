@@ -9,7 +9,11 @@ dummy_build_folder_obj := $(shell mkdir -p obj)
 #COMPILER & LINKER FLAGS
 CXXFLAG=-O3 -mavx2 -mfma -msse3 -Wno-ignored-attributes
 LDFLAG=-O3
-LDFLAG += -Wl,-rpath,'$$ORIGIN/../../boost/lib'
+##LDFLAG += -Wl,-rpath,'$$ORIGIN/../../boost/lib'
+LDFLAG += \
+  -Wl,-rpath,'$$ORIGIN/../../boost/lib' \
+  -Wl,-rpath,'$$ORIGIN/../../htslib' \
+  -Wl,-rpath,'$$ORIGIN/../../sdsl/lib'
 #CXXFLAG=-O0 -g -mavx2 -mfma -Wno-ignored-attributes
 #LDFLAG=-O0
 
@@ -70,10 +74,10 @@ SDSL_LIB=../sdsl/lib
 all: $(BFILE)
 	
 $(BFILE): $(OFILE)
-	$(CXX) $(LDFLAG) $^ -I${HTSLIB_INC} -L${HTSLIB_INC} -lhts -I${SDSL_INC} -L${SDSL_LIB} -lsdsl -fopenmp $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
+	$(CXX) $(LDFLAG) $^  -L${HTSLIB_INC} -lhts -L${SDSL_LIB} -lsdsl -fopenmp $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
 
 obj/%.o: %.cpp $(HFILE)
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -I${HTSLIB_INC} -L${HTSLIB_INC} -lhts -I${SDSL_INC} -L${SDSL_LIB} -lsdsl -fopenmp -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -I${HTSLIB_INC} -I${SDSL_INC} -fopenmp -I$(BOOST_INC)
 
 clean: 
 	rm -f obj/*.o $(BFILE)
