@@ -7,11 +7,20 @@ BOOST_LIBS = \
 	boost/lib/libboost_serialization.so
 SDSL = sdsl/lib/libsdsl.a
 
-.PHONY: all clean deps htslib boost sdsl $(PROJECTS)
+
+ifeq ($(DNANEXUS),1)
+DEPS = $(SDSL)
+else
+DEPS = $(HTSLIB) $(BOOST_LIBS) $(SDSL)
+endif
+
+
+
+.PHONY: all clean deps $(PROJECTS)
 
 all: deps $(PROJECTS)
 
-deps: $(HTSLIB) $(BOOST_LIBS) $(SDSL)
+deps: $(DEPS)
 
 $(PROJECTS):
 	$(MAKE) -C $@ $(COMPILATION_ENV)

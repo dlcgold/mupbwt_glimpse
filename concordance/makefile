@@ -68,6 +68,15 @@ BOOST_LIB_PO=../boost/lib/libboost_program_options.so
 BOOST_LIB_SE=../boost/lib/libboost_serialization.so
 HTSLIB_INC=../htslib
 
+ifeq ($(DNANEXUS),1)
+BOOST_INC = /usr/include
+BOOST_LIB_IO = /usr/lib/x86_64-linux-gnu/libboost_iostreams.a
+BOOST_LIB_PO = /usr/lib/x86_64-linux-gnu/libboost_program_options.a
+BOOST_LIB_SE = /usr/lib/x86_64-linux-gnu/libboost_serialization.a
+HTSLIB_INC = /usr/local/include
+HTSLIB_LIB = /usr/local/lib/libhts.a
+endif
+
 #COMPILATION RULES
 all: $(BFILE)
 
