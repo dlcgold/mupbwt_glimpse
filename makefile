@@ -1,4 +1,4 @@
-PROJECTS = chunk concordance ligate phase split_reference
+PROJECTS = chunk concordance ligate phase split_reference phase_common split_reference_common
 
 HTSLIB = htslib/libhts.a
 BOOST_LIBS = \
