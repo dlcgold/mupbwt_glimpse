@@ -22,9 +22,18 @@ LDFLAG += \
 DYN_LIBS=-lz -lpthread -lbz2 -llzma -lcurl -lcrypto
 
 HFILE=$(shell find src -name *.h)
-CFILE=$(shell find src -name *.cpp)
-OFILE=$(shell for file in `find src -name *.cpp`; do echo obj/$$(basename $$file .cpp).o; done)
-VPATH=$(shell for file in `find src -name *.cpp`; do echo $$(dirname $$file); done)
+# CFILE=$(shell find src -name *.cpp)
+# OFILE=$(shell for file in `find src -name *.cpp`; do echo obj/$$(basename $$file .cpp).o; done)
+# VPATH=$(shell for file in `find src -name *.cpp`; do echo $$(dirname $$file); done)
+#
+CPP_FILES=$(shell find src -name "*.cpp")
+C_FILES=$(shell find src -name "*.c")
+
+OFILE=$(shell for file in $(CPP_FILES); do echo obj/$$(basename $$file .cpp).o; done)
+OFILE+=$(shell for file in $(C_FILES); do echo obj/$$(basename $$file .c).o; done)
+
+VPATH=$(shell find src -type d)
+
 
 NAME=$(shell basename $(CURDIR))
 BFILE=bin/GLIMPSE2_$(NAME)
@@ -90,6 +99,9 @@ $(BFILE): $(OFILE)
 	$(CXX) $(LDFLAG) $^  -L${HTSLIB_INC} -lhts -L${SDSL_LIB} -lsdsl -fopenmp $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
 
 obj/%.o: %.cpp $(HFILE)
+	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -I${HTSLIB_INC} -I${SDSL_INC} -fopenmp -I$(BOOST_INC)
+
+obj/%.o: %.c $(HFILE)
 	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -I${HTSLIB_INC} -I${SDSL_INC} -fopenmp -I$(BOOST_INC)
 
 clean: 

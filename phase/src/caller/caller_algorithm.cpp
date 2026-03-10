@@ -148,8 +148,8 @@ void caller::phase_loop() {
   // mupbwt = mu;
   std::vector<int> sites;
 
-  vrb.bullet("mu-PBWT: " + stb.str(mupbwt.height) + " haplotypes and " +
-             stb.str(mupbwt.width) + " variants");
+  vrb.bullet("mu-PBWT: " + stb.str(mupbwt.n_haps) + " haplotypes and " +
+             stb.str(mupbwt.n_sites) + " variants");
   for (auto a : H.pbwt_grp) {
     sites.push_back(H.common2tot[a]);
     // std::cout << H.common2tot[a] << "\t";
@@ -167,67 +167,62 @@ void caller::phase_loop() {
     H.updateHaplotypes(G);
     H.transposeRareTar();
     if (use_mu) {
-      std::vector<std::string> queries;
+
+      uint32_t n = G.vecG.size() * 2;
+      uint32_t n_sites = mupbwt.n_sites;
+
+      uint8_t *q_p = nullptr;
+      size_t mat_size = (size_t)n * n_sites * sizeof(uint8_t);
+
+      if (posix_memalign((void **)&q_p, 64, mat_size) != 0) {
+        fprintf(stderr, "Memory allocation error for q_p\n");
+        exit(-1);
+      }
+      memset(q_p, 0, mat_size);
+
+      uint32_t q_idx = 0;
+
       for (auto &i : G.vecG) {
-        unsigned site_c = 0;
-        std::string query;
+        uint32_t site_c = 0;
+        uint32_t pbwt_site = 0;
+
         for (auto &&j : i->H0) {
-          if (use_mu_common) {
-            if (H.flag_common[site_c]) {
-              if (j) {
-                query.push_back('1');
-              } else {
-                query.push_back('0');
-              }
-            }
-          } else {
+          if (!use_mu_common || H.flag_common[site_c]) {
             if (j) {
-              query.push_back('1');
-            } else {
-              query.push_back('0');
+              q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
             }
+            pbwt_site++;
           }
           site_c++;
         }
+        q_idx++;
 
-        queries.push_back(query);
-        query.clear();
         site_c = 0;
+        pbwt_site = 0;
 
-        for (auto &&j : i->H0) {
-          if (use_mu_common) {
-            if (H.flag_common[site_c]) {
-              if (j) {
-                query.push_back('1');
-              } else {
-                query.push_back('0');
-              }
-            }
-          } else {
+        for (auto &&j : i->H1) {
+          if (!use_mu_common || H.flag_common[site_c]) {
             if (j) {
-              query.push_back('1');
-            } else {
-              query.push_back('0');
+              q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
             }
+            pbwt_site++;
           }
           site_c++;
         }
+        q_idx++;
+      }
 
-        queries.push_back(query);
-      }
-      //            if (iter == 0) {
-      //                for(auto &q: queries){
-      //                    std::cerr << q << "\n";
-      //                }
-      //            }
-      n_q = queries.size();
-      if (!use_smems && !use_mpsc) {
-        H.matchHapsFromMuPBWT(mupbwt, V, false, sites, queries);
-      } else if (use_smems && !use_mpsc) {
-        H.matchHapsFromMuPBWTSMEMS(mupbwt, V, false, sites, queries);
-      } else if (!use_smems && use_mpsc) {
-        H.matchHapsFromMuPBWTSMEMS(mupbwt, V, false, sites, queries);
-      }
+      // if (!use_smems && !use_mpsc) {
+      //   H.matchHapsFromMuPBWT(mupbwt, V, false, sites, queries);
+      // } else if (use_smems && !use_mpsc) {
+      //   H.matchHapsFromMuPBWTSMEMS(mupbwt, V, false, sites, queries);
+      // } else if (!use_smems && use_mpsc) {
+      //   H.matchHapsFromMuPBWTSMEMS(mupbwt, V, false, sites, queries);
+      // }
+      H.matchHapsFromMuPBWT(mupbwt, V, false, sites, q_p, n, n_sites,
+                            options["threads"].as<int>());
+      n_q = n;
+      free(q_p);
     } else {
       H.matchHapsFromCompressedPBWTSmall(V, false);
     }
@@ -239,23 +234,23 @@ void caller::phase_loop() {
     // vrb.bullet("n_q = " + std::to_string(n_q));
     // vrb.bullet("pbwt_states.size() = " +
     // std::to_string(H.pbwt_states.size()));
-    // size_t max_depth = 0;
-    // for (size_t q = 0; q < n_q / 2; q++) {
-    //   max_depth = std::max(max_depth, H.pbwt_states[q].size());
-    // }
-    //
-    // for (size_t d = 0; d < max_depth; d++) {
-    //   size_t total_haplos = 0;
-    //
-    //   for (size_t q = 0; q < n_q / 2; q++) {
-    //     if (H.pbwt_states[q].size() > d) {
-    //       total_haplos += H.pbwt_states[q][d].size();
-    //     }
-    //   }
-    //
-    //   vrb.bullet("after extraction pbwt_states: total haplotypes at depth " +
-    //              std::to_string(d) + " = " + std::to_string(total_haplos));
-    // }
+    size_t max_depth = 0;
+    for (size_t q = 0; q < n_q / 2; q++) {
+      max_depth = std::max(max_depth, H.pbwt_states[q].size());
+    }
+
+    for (size_t d = 0; d < max_depth; d++) {
+      size_t total_haplos = 0;
+
+      for (size_t q = 0; q < n_q / 2; q++) {
+        if (H.pbwt_states[q].size() > d) {
+          total_haplos += H.pbwt_states[q][d].size();
+        }
+      }
+
+      vrb.bullet("after extraction pbwt_states: total haplotypes at depth " +
+                 std::to_string(d) + " = " + std::to_string(total_haplos));
+    }
     current_stage = STAGE_RESTRICT;
     phase_iteration();
     current_stage = STAGE_BURN;
@@ -273,80 +268,82 @@ void caller::phase_loop() {
     H.transposeRareTar();
 
     if (use_mu) {
-      std::vector<std::string> queries;
+
+      uint32_t n = G.vecG.size() * 2;
+      uint32_t n_sites = mupbwt.n_sites;
+
+      uint8_t *q_p = nullptr;
+      size_t mat_size = (size_t)n * n_sites * sizeof(uint8_t);
+
+      if (posix_memalign((void **)&q_p, 64, mat_size) != 0) {
+        fprintf(stderr, "Memory allocation error for q_p\n");
+        exit(-1);
+      }
+      memset(q_p, 0, mat_size);
+
+      uint32_t q_idx = 0;
+
       for (auto &i : G.vecG) {
-        std::string query;
-        unsigned int site_c = 0;
+        uint32_t site_c = 0;
+        uint32_t pbwt_site = 0;
 
         for (auto &&j : i->H0) {
-          if (use_mu_common) {
-            if (H.flag_common[site_c]) {
-              if (j) {
-                query.push_back('1');
-              } else {
-                query.push_back('0');
-              }
-            }
-          } else {
+          if (!use_mu_common || H.flag_common[site_c]) {
             if (j) {
-              query.push_back('1');
-            } else {
-              query.push_back('0');
+              q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
             }
+            pbwt_site++;
           }
           site_c++;
         }
-        queries.push_back(query);
-        query.clear();
+        q_idx++;
+
         site_c = 0;
-        for (auto &&j : i->H0) {
-          if (use_mu_common) {
-            if (H.flag_common[site_c]) {
-              if (j) {
-                query.push_back('1');
-              } else {
-                query.push_back('0');
-              }
-            }
-          } else {
+        pbwt_site = 0;
+
+        for (auto &&j : i->H1) {
+          if (!use_mu_common || H.flag_common[site_c]) {
             if (j) {
-              query.push_back('1');
-            } else {
-              query.push_back('0');
+              q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
             }
+            pbwt_site++;
           }
           site_c++;
         }
-        queries.push_back(query);
+        q_idx++;
       }
-      n_q = queries.size();
-      if (!use_smems && !use_mpsc) {
-        H.matchHapsFromMuPBWT(mupbwt, V, false, sites, queries);
-      } else if (use_smems && !use_mpsc) {
-        H.matchHapsFromMuPBWTSMEMS(mupbwt, V, false, sites, queries);
-      } else if (!use_smems && use_mpsc) {
-        H.matchHapsFromMuPBWTMPSC(mupbwt, V, false, sites, queries);
-      }
+
+      H.matchHapsFromMuPBWT(mupbwt, V, true, sites, q_p, n, n_sites,
+                            options["threads"].as<int>());
+      // if (!use_smems && !use_mpsc) {
+      //   H.matchHapsFromMuPBWT(mupbwt, V, false, sites, queries);
+      // } else if (use_smems && !use_mpsc) {
+      //   H.matchHapsFromMuPBWTSMEMS(mupbwt, V, false, sites, queries);
+      // } else if (!use_smems && use_mpsc) {
+      //   H.matchHapsFromMuPBWTMPSC(mupbwt, V, false, sites, queries);
+      // }
+      n_q = n;
+      free(q_p);
     } else {
-      H.matchHapsFromCompressedPBWTSmall(V, false);
+      H.matchHapsFromCompressedPBWTSmall(V, true);
     }
-    // size_t max_depth = 0;
-    // for (size_t q = 0; q < n_q / 2; q++) {
-    //   max_depth = std::max(max_depth, H.pbwt_states[q].size());
-    // }
-    //
-    // for (size_t d = 0; d < max_depth; d++) {
-    //   size_t total_haplos = 0;
-    //
-    //   for (size_t q = 0; q < n_q / 2; q++) {
-    //     if (H.pbwt_states[q].size() > d) {
-    //       total_haplos += H.pbwt_states[q][d].size();
-    //     }
-    //   }
-    //
-    //   vrb.bullet("after extraction pbwt_states: total haplotypes at depth " +
-    //              std::to_string(d) + " = " + std::to_string(total_haplos));
-    // }
+    size_t max_depth = 0;
+    for (size_t q = 0; q < n_q / 2; q++) {
+      max_depth = std::max(max_depth, H.pbwt_states[q].size());
+    }
+
+    for (size_t d = 0; d < max_depth; d++) {
+      size_t total_haplos = 0;
+
+      for (size_t q = 0; q < n_q / 2; q++) {
+        if (H.pbwt_states[q].size() > d) {
+          total_haplos += H.pbwt_states[q][d].size();
+        }
+      }
+
+      vrb.bullet("after extraction pbwt_states: total haplotypes at depth " +
+                 std::to_string(d) + " = " + std::to_string(total_haplos));
+    }
     phase_iteration();
   }
 

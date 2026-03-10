@@ -23,7 +23,8 @@
  * SOFTWARE.
  ******************************************************************************/
 
-#include "mu-pbwt/rlpbwt_int.h"
+// #include "mu-pbwt/rlpbwt_int.h"
+#include "mupbwt/pbwt.h"
 #include <io/ref_genotype_reader.h>
 
 #ifdef __XSI__
@@ -359,26 +360,37 @@ void ref_genotype_reader::parseRefGenotypes(bcf_srs_t *sr, bcf_srs_t *srm,
              stb.str(tac.rel_time() * 1.0 / 1000, 2) + "s)");
   vrb.bullet(fref);
   // auto mupbwt = mupbwt_int(srm, fref, H, V, n_ref_samples, keep_mono);
-  std::vector<std::string> tmp;
-  auto mupbwt =
-      rlpbwt_int(fref, tmp, H, V, V.input_gregion, 1, false, use_common);
-  // auto mupbwt = mupbwt_int(fref.c_str());
-  if (true) {
-    auto runs = mupbwt.get_run_number();
-    std::cout << "\n----\nTotal haplotypes: " << mupbwt.height << "\n";
-    std::cout << "Total sites: " << mupbwt.width << "\n";
-    std::cout << "----\nTotal runs: " << runs << "\n";
-    std::cout << "Average runs: " << std::ceil(runs / mupbwt.width)
-              << "\n----\n";
-    auto s = mupbwt.size_in_mega_bytes(true);
-    std::cout << "mupbwt: " << s << " megabytes\n----\n";
-    std::cout << "estimated dense size: "
-              << dense_size_megabyte(mupbwt.height, mupbwt.width)
-              << " megabytes\n----\n";
-  }
-  std::ofstream outstream;
+  // std::vector<std::string> tmp;
+  // auto mupbwt =
+  //     rlpbwt_int(fref, tmp, H, V, V.input_gregion, 1, false, use_common);
+  // // auto mupbwt = mupbwt_int(fref.c_str());
+  // if (true) {
+  //   auto runs = mupbwt.get_run_number();
+  //   std::cout << "\n----\nTotal haplotypes: " << mupbwt.height << "\n";
+  //   std::cout << "Total sites: " << mupbwt.width << "\n";
+  //   std::cout << "----\nTotal runs: " << runs << "\n";
+  //   std::cout << "Average runs: " << std::ceil(runs / mupbwt.width)
+  //             << "\n----\n";
+  //   auto s = mupbwt.size_in_mega_bytes(true);
+  //   std::cout << "mupbwt: " << s << " megabytes\n----\n";
+  //   std::cout << "estimated dense size: "
+  //             << dense_size_megabyte(mupbwt.height, mupbwt.width)
+  //             << " megabytes\n----\n";
+  // }
+
   auto memorize_file = output_prefix + "_" + reg_out + ".ser";
-  outstream.open(memorize_file.c_str());
-  mupbwt.serialize(outstream);
-  outstream.close();
+  pbwt mupbwt;
+  pbwt_build_af(&mupbwt, fref, H, V, V.input_gregion);
+  FILE *out = fopen(memorize_file.c_str(), "wb");
+  if (!out) {
+    perror("fopen");
+    return;
+  }
+  if (pbwt_serialize(out, &mupbwt) != 0) {
+    fprintf(stderr, "Serialization error\n");
+    fclose(out);
+    return;
+  }
+  pbwt_print_size(&mupbwt);
+  free_pbwt(&mupbwt);
 }

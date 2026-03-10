@@ -28,7 +28,9 @@
 
 #include <utils/otools.h>
 
-#include "mu-pbwt/rlpbwt_int.h"
+// #include "mu-pbwt/rlpbwt_int.h"
+#include "mupbwt/pbwt.h"
+
 #include <containers/genotype_set.h>
 #include <containers/haplotype_set.h>
 #include <containers/variant_map.h>
@@ -54,7 +56,7 @@ public:
   bool use_mpsc = false;
   bool use_mu_common = false;
 
-  rlpbwt_int mupbwt;
+  pbwt mupbwt;
 
   InputFormat input_fmt;
   OutputFormat output_fmt;

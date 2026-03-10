@@ -176,9 +176,20 @@ void caller::read_files_and_initialise() {
   std::ifstream load;
   size_t lastindex = reference_filename.find_last_of(".");
   std::string load_file = reference_filename.substr(0, lastindex) + ".ser";
-  load.open(load_file.c_str());
-  mupbwt.load(load);
-  load.close();
+  // load.open(load_file.c_str());
+  // mupbwt.load(load);
+  // load.close();
+
+  memset(&mupbwt, 0, sizeof(mupbwt));
+
+  FILE *fpb = fopen(load_file.c_str(), "rb");
+  if (!fpb) {
+    exit(-1);
+  }
+  setvbuf(fpb, NULL, _IOFBF, 1024 * 1024 * 4);
+
+  pbwt_deserialize(fpb, &mupbwt);
+  fclose(fpb);
   vrb.bullet("mu-PBWT loading (" + stb.str(tac.rel_time() * 1.0 / 1000, 2) +
              "s)");
 
