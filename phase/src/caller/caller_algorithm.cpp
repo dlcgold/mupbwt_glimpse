@@ -188,6 +188,11 @@ void caller::phase_loop() {
 
         for (auto &&j : i->H0) {
           if (!use_mu_common || H.flag_common[site_c]) {
+            if (pbwt_site >= n_sites) {
+              fprintf(stderr, "\nFATAL: pbwt_site (%u) >= n_sites (%u) in 0\n",
+                      pbwt_site, n_sites);
+              exit(-1);
+            }
             if (j) {
               q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
             }
@@ -202,6 +207,11 @@ void caller::phase_loop() {
 
         for (auto &&j : i->H1) {
           if (!use_mu_common || H.flag_common[site_c]) {
+            if (pbwt_site >= n_sites) {
+              fprintf(stderr, "\nFATAL: pbwt_site (%u) >= n_sites (%u) in 1\n",
+                      pbwt_site, n_sites);
+              exit(-1);
+            }
             if (j) {
               q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
             }
@@ -289,6 +299,11 @@ void caller::phase_loop() {
 
         for (auto &&j : i->H0) {
           if (!use_mu_common || H.flag_common[site_c]) {
+            if (pbwt_site >= n_sites) {
+              fprintf(stderr, "\nFATAL: pbwt_site (%u) >= n_sites (%u) in 0\n",
+                      pbwt_site, n_sites);
+              exit(-1);
+            }
             if (j) {
               q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
             }
@@ -303,6 +318,11 @@ void caller::phase_loop() {
 
         for (auto &&j : i->H1) {
           if (!use_mu_common || H.flag_common[site_c]) {
+            if (pbwt_site >= n_sites) {
+              fprintf(stderr, "\nFATAL: pbwt_site (%u) >= n_sites (%u) in 1\n",
+                      pbwt_site, n_sites);
+              exit(-1);
+            }
             if (j) {
               q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
             }
