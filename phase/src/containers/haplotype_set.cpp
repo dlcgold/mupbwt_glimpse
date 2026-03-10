@@ -519,32 +519,32 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
 
     size_t idx = 0;
     int c_p_count = 0;
-
-    for (size_t d = 0; d < pbwt_depth && idx < haplo_vec.size(); d++) {
-      if (haplo_vec[idx].second < avg_s)
-        break;
-
-      size_t end = std::min(idx + chunk_size, haplo_vec.size());
-      for (size_t i = idx; i < end; i++) {
-        pbwt_states[target_ind][d].push_back(haplo_vec[i].first);
-        c_p_count++;
-      }
-      idx = end;
-    }
-
-    if (c_p_count == 0 && !haplo_vec.empty()) {
-      // #pragma omp critical
-      //       {
-      double check = haplo_vec[0].second;
-      size_t cc = 0;
-      for (const auto &[h, s] : haplo_vec) {
-        pbwt_states[target_ind][pbwt_depth - 1].push_back(h);
-        if (cc >= chunk_size || (check - s) > 0.1)
+#pragma omp critical
+    {
+      for (size_t d = 0; d < pbwt_depth && idx < haplo_vec.size(); d++) {
+        if (haplo_vec[idx].second < avg_s)
           break;
-        check = s;
-        cc++;
+
+        size_t end = std::min(idx + chunk_size, haplo_vec.size());
+        for (size_t i = idx; i < end; i++) {
+          pbwt_states[target_ind][d].push_back(haplo_vec[i].first);
+          c_p_count++;
+        }
+        idx = end;
       }
-      // }
+
+      if (c_p_count == 0 && !haplo_vec.empty()) {
+
+        double check = haplo_vec[0].second;
+        size_t cc = 0;
+        for (const auto &[h, s] : haplo_vec) {
+          pbwt_states[target_ind][pbwt_depth - 1].push_back(h);
+          if (cc >= chunk_size || (check - s) > 0.1)
+            break;
+          check = s;
+          cc++;
+        }
+      }
     }
   }
 
