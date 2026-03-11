@@ -157,6 +157,11 @@ public:
                            const bool main_iteration,
                            std::vector<int> &uncommon_sites, uint8_t *q_p,
                            uint32_t n, uint32_t n_sites, int threads);
+  void matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
+                           const bool main_iteration,
+                           std::vector<int> &uncommon_sites,
+                           const genotype_set &G, uint32_t n_sites,
+                           int threads);
   // void matchHapsFromMuPBWTSMEMS(rlpbwt_int &mupbwt, const variant_map &V,
   // const bool main_iteration, std::vector<int> &uncommon_sites,
   //                          std::vector<std::string> &queries);
