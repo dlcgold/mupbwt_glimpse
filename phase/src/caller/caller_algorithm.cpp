@@ -160,6 +160,8 @@ void caller::phase_loop() {
 
   int n_q = 0;
   vrb.bullet("PBWT sites " + stb.str(sites.size()));
+
+  vrb.bullet("# target " + stb.str(G.vecG.size() * 2));
   for (int iter = 0; iter < nBurnin; iter++) {
     vrb.title("Burn-in iteration [" + stb.str(iter + 1) + "/" +
               stb.str(nBurnin) + "]");
