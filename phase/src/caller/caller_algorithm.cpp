@@ -167,7 +167,7 @@ void caller::phase_loop() {
     H.updateHaplotypes(G);
     H.transposeRareTar();
     if (use_mu) {
-
+      tac.clock();
       uint32_t n = G.vecG.size() * 2;
       uint32_t n_sites = mupbwt.n_sites;
 
@@ -188,11 +188,6 @@ void caller::phase_loop() {
 
         for (auto &&j : i->H0) {
           if (!use_mu_common || H.flag_common[site_c]) {
-            if (pbwt_site >= n_sites) {
-              fprintf(stderr, "\nFATAL: pbwt_site (%u) >= n_sites (%u) in 0\n",
-                      pbwt_site, n_sites);
-              exit(-1);
-            }
             if (j) {
               q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
             }
@@ -207,11 +202,6 @@ void caller::phase_loop() {
 
         for (auto &&j : i->H1) {
           if (!use_mu_common || H.flag_common[site_c]) {
-            if (pbwt_site >= n_sites) {
-              fprintf(stderr, "\nFATAL: pbwt_site (%u) >= n_sites (%u) in 1\n",
-                      pbwt_site, n_sites);
-              exit(-1);
-            }
             if (j) {
               q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
             }
@@ -221,7 +211,8 @@ void caller::phase_loop() {
         }
         q_idx++;
       }
-
+      vrb.bullet("Mu-PBWT loaded queries (" +
+                 stb.str(tac.rel_time() * 1.0 / 1000, 2) + "s)");
       // if (!use_smems && !use_mpsc) {
       //   H.matchHapsFromMuPBWT(mupbwt, V, false, sites, queries);
       // } else if (use_smems && !use_mpsc) {
@@ -278,7 +269,7 @@ void caller::phase_loop() {
     H.transposeRareTar();
 
     if (use_mu) {
-
+      tac.clock();
       uint32_t n = G.vecG.size() * 2;
       uint32_t n_sites = mupbwt.n_sites;
 
@@ -299,11 +290,6 @@ void caller::phase_loop() {
 
         for (auto &&j : i->H0) {
           if (!use_mu_common || H.flag_common[site_c]) {
-            if (pbwt_site >= n_sites) {
-              fprintf(stderr, "\nFATAL: pbwt_site (%u) >= n_sites (%u) in 0\n",
-                      pbwt_site, n_sites);
-              exit(-1);
-            }
             if (j) {
               q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
             }
@@ -318,11 +304,6 @@ void caller::phase_loop() {
 
         for (auto &&j : i->H1) {
           if (!use_mu_common || H.flag_common[site_c]) {
-            if (pbwt_site >= n_sites) {
-              fprintf(stderr, "\nFATAL: pbwt_site (%u) >= n_sites (%u) in 1\n",
-                      pbwt_site, n_sites);
-              exit(-1);
-            }
             if (j) {
               q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
             }
@@ -332,7 +313,8 @@ void caller::phase_loop() {
         }
         q_idx++;
       }
-
+      vrb.bullet("Mu-PBWT loaded queries (" +
+                 stb.str(tac.rel_time() * 1.0 / 1000, 2) + "s)");
       H.matchHapsFromMuPBWT(mupbwt, V, true, sites, q_p, n, n_sites,
                             options["threads"].as<int>());
       // if (!use_smems && !use_mpsc) {
