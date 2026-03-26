@@ -4,13 +4,13 @@ BOOST_LIBS = \
 	boost/lib/libboost_iostreams.so \
 	boost/lib/libboost_program_options.so \
 	boost/lib/libboost_serialization.so
-SDSL = sdsl/lib/libsdsl.a
+
 
 
 ifeq ($(DNANEXUS),1)
 DEPS = 
 else
-DEPS = $(HTSLIB) $(BOOST_LIBS) $(SDSL)
+DEPS = $(HTSLIB) $(BOOST_LIBS)
 endif
 
 
@@ -43,11 +43,6 @@ $(BOOST_LIBS):
 	rm -f boost_1_73_0.tar.bz2
 	rm -rf boost_1_73_0
 
-
-$(SDSL):
-	git clone https://github.com/simongog/sdsl-lite.git
-	cd sdsl-lite && ./install.sh ../sdsl
-	rm -rf sdsl-lite
 
 
 clean:

@@ -71,8 +71,6 @@ BOOST_LIB_IO=../boost/lib/libboost_iostreams.so
 BOOST_LIB_PO=../boost/lib/libboost_program_options.so
 BOOST_LIB_SE=../boost/lib/libboost_serialization.so
 HTSLIB_INC=../htslib
-SDSL_INC=../sdsl/include
-SDSL_LIB=../sdsl/lib
 
 ifeq ($(DNANEXUS),1)
 BOOST_INC = /usr/include
@@ -87,13 +85,13 @@ endif
 all: $(BFILE)
 	
 $(BFILE): $(OFILE)
-	$(CXX) $(LDFLAG) $^  -L${HTSLIB_INC} -lhts -L${SDSL_LIB} -lsdsl -fopenmp $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
+	$(CXX) $(LDFLAG) $^  -L${HTSLIB_INC} -lhts -fopenmp $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
 
 obj/%.o: %.cpp $(HFILE)
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -I${HTSLIB_INC} -I${SDSL_INC} -fopenmp -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -I${HTSLIB_INC} -fopenmp -I$(BOOST_INC)
 
 obj/%.o: %.c $(HFILE)
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -I${HTSLIB_INC} -I${SDSL_INC} -fopenmp -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc -I${HTSLIB_INC} -fopenmp -I$(BOOST_INC)
 
 clean: 
 	rm -f obj/*.o $(BFILE)
