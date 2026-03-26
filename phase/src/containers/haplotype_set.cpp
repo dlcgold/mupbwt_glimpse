@@ -577,13 +577,19 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
   }
 
   const size_t chunk_size = uncommon_sites.size();
-  const double thr_min = n_sites / 1000.0;
-  const double thr_short = n_sites / 100.0;
-  const double thr_medium = n_sites / 10.0;
+  // const double thr_min = n_sites / 1000.0;
+  // const double thr_short = n_sites / 100.0;
+  // const double thr_medium = n_sites / 10.0;
+  // const double thr_min = n_sites / 100000.0;
+  
+  const double thr_min = 2;
+  const double thr_short = n_sites / 1000000.0;
+  const double thr_medium = n_sites / 100000.0;
+
   uint32_t n_haps = mupbwt.n_haps;
 
   uint32_t n = G.vecG.size() * 2;
-  const uint32_t MAX_EXACT_STEPS = 50;
+  const uint32_t MAX_EXACT_STEPS = K * 4;
 
   double sum_smem_time = 0.0;
   double sum_rank_time = 0.0;
@@ -649,11 +655,19 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
         bool exact_only = false;
 
         if (match_len < thr_short) {
-          depth_limit = K / 2;
-        } else if (match_len < thr_medium) {
           depth_limit = K;
+            exact_only = true;
+            weight = contrib * contrib;
+
+            // weight = contrib * 0.5;
+        } else if (match_len < thr_medium) {
+          depth_limit = K * 2;
+// weight = contrib ;
+
+            weight = contrib * contrib;
+            exact_only = true;
         } else {
-          weight = contrib * contrib;
+          // weight = std::pow(contrib, 1.2);
           exact_only = true;
           depth_limit = MAX_EXACT_STEPS;
         }
@@ -808,8 +822,10 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
       if (top_k > 0) {
         size_t idx = 0;
         for (size_t d = 0; d < pbwt_depth && idx < top_k; d++) {
-          if (haplo_vec[idx].second < avg_s)
-            break;
+           if (haplo_vec[idx].second < avg_s)
+             break;
+          // if(idx>K && haplo_vec[idx].second < (avg_s)) 
+          //   break;
           size_t end = std::min(idx + chunk_size, top_k);
           for (size_t i = idx; i < end; i++) {
             local_states[d].push_back(haplo_vec[i].first);
