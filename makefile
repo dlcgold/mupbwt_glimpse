@@ -1,5 +1,4 @@
-PROJECTS = chunk concordance ligate phase split_reference phase_common split_reference_common
-
+PROJECTS = chunk concordance ligate phase split_reference
 HTSLIB = htslib/libhts.a
 BOOST_LIBS = \
 	boost/lib/libboost_iostreams.so \
@@ -9,7 +8,7 @@ SDSL = sdsl/lib/libsdsl.a
 
 
 ifeq ($(DNANEXUS),1)
-DEPS = $(SDSL)
+DEPS = 
 else
 DEPS = $(HTSLIB) $(BOOST_LIBS) $(SDSL)
 endif
