@@ -581,7 +581,7 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
   // const double thr_short = n_sites / 100.0;
   // const double thr_medium = n_sites / 10.0;
   // const double thr_min = n_sites / 100000.0;
-  
+
   const double thr_min = 2;
   const double thr_short = n_sites / 1000000.0;
   const double thr_medium = n_sites / 100000.0;
@@ -656,16 +656,16 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
 
         if (match_len < thr_short) {
           depth_limit = K;
-            exact_only = true;
-            weight = contrib * contrib;
+          exact_only = true;
+          weight = contrib * contrib;
 
-            // weight = contrib * 0.5;
+          // weight = contrib * 0.5;
         } else if (match_len < thr_medium) {
           depth_limit = K * 2;
-// weight = contrib ;
+          // weight = contrib ;
 
-            weight = contrib * contrib;
-            exact_only = true;
+          weight = contrib * contrib;
+          exact_only = true;
         } else {
           // weight = std::pow(contrib, 1.2);
           exact_only = true;
@@ -796,8 +796,8 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
         p_l = l;
       }
 
-      double t_end_smem = omp_get_wtime();
-      thread_smem_time += (t_end_smem - t_start_smem);
+      // double t_end_smem = omp_get_wtime();
+      // thread_smem_time += (t_end_smem - t_start_smem);
 
       std::vector<std::pair<int, double>> haplo_vec;
       haplo_vec.reserve(active_haplos.size());
@@ -822,9 +822,9 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
       if (top_k > 0) {
         size_t idx = 0;
         for (size_t d = 0; d < pbwt_depth && idx < top_k; d++) {
-           if (haplo_vec[idx].second < avg_s)
-             break;
-          // if(idx>K && haplo_vec[idx].second < (avg_s)) 
+          if (haplo_vec[idx].second < avg_s)
+            break;
+          // if(idx>K && haplo_vec[idx].second < (avg_s))
           //   break;
           size_t end = std::min(idx + chunk_size, top_k);
           for (size_t i = idx; i < end; i++) {
@@ -858,24 +858,24 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
         }
       }
 
-      double t_end_rank = omp_get_wtime();
-      thread_rank_time += (t_end_rank - t_end_smem);
+      // double t_end_rank = omp_get_wtime();
+      // thread_rank_time += (t_end_rank - t_end_smem);
     }
 
-#pragma omp atomic
-    sum_smem_time += thread_smem_time;
-#pragma omp atomic
-    sum_rank_time += thread_rank_time;
+    // #pragma omp atomic
+    //     sum_smem_time += thread_smem_time;
+    // #pragma omp atomic
+    //     sum_rank_time += thread_rank_time;
   }
 
   vrb.bullet("Mu-PBWT selection (" + stb.str(tac.rel_time() * 1.0 / 1000, 2) +
              "s)");
 
-  double avg_smem = sum_smem_time / threads;
-  double avg_rank = sum_rank_time / threads;
-
-  vrb.bullet("  -> Avg SMEM computation : " + stb.str(avg_smem, 2) + "s");
-  vrb.bullet("  -> Avg Ranking/Sorting  : " + stb.str(avg_rank, 2) + "s");
+  // double avg_smem = sum_smem_time / threads;
+  // double avg_rank = sum_rank_time / threads;
+  //
+  // vrb.bullet("  -> Avg SMEM computation : " + stb.str(avg_smem, 2) + "s");
+  // vrb.bullet("  -> Avg Ranking/Sorting  : " + stb.str(avg_rank, 2) + "s");
 }
 void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
                                         const bool main_iteration,

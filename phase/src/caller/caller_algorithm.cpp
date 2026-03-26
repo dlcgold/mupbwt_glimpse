@@ -170,21 +170,21 @@ void caller::phase_loop() {
       n_q = G.vecG.size() * 2;
     }
 
-    size_t max_depth = 0;
-    for (size_t q = 0; q < n_q / 2; q++) {
-      max_depth = std::max(max_depth, H.pbwt_states[q].size());
-    }
-
-    for (size_t d = 0; d < max_depth; d++) {
-      size_t total_haplos = 0;
-      for (size_t q = 0; q < n_q / 2; q++) {
-        if (H.pbwt_states[q].size() > d) {
-          total_haplos += H.pbwt_states[q][d].size();
-        }
-      }
-      vrb.bullet("after extraction pbwt_states: total haplotypes at depth " +
-                 std::to_string(d) + " = " + std::to_string(total_haplos));
-    }
+    // size_t max_depth = 0;
+    // for (size_t q = 0; q < n_q / 2; q++) {
+    //   max_depth = std::max(max_depth, H.pbwt_states[q].size());
+    // }
+    //
+    // for (size_t d = 0; d < max_depth; d++) {
+    //   size_t total_haplos = 0;
+    //   for (size_t q = 0; q < n_q / 2; q++) {
+    //     if (H.pbwt_states[q].size() > d) {
+    //       total_haplos += H.pbwt_states[q][d].size();
+    //     }
+    //   }
+    //   vrb.bullet("after extraction pbwt_states: total haplotypes at depth " +
+    //              std::to_string(d) + " = " + std::to_string(total_haplos));
+    // }
 
     current_stage = STAGE_RESTRICT;
     phase_iteration();
@@ -192,7 +192,7 @@ void caller::phase_loop() {
     phase_iteration();
   }
 
-  vrb.bullet("having " + stb.str(sites.size()) + " sites");
+  // vrb.bullet("having " + stb.str(sites.size()) + " sites");
 
   current_stage = STAGE_MAIN;
   int nMain = options["main"].as<int>();
@@ -215,21 +215,21 @@ void caller::phase_loop() {
       n_q = G.vecG.size() * 2;
     }
 
-    size_t max_depth = 0;
-    for (size_t q = 0; q < n_q / 2; q++) {
-      max_depth = std::max(max_depth, H.pbwt_states[q].size());
-    }
-
-    for (size_t d = 0; d < max_depth; d++) {
-      size_t total_haplos = 0;
-      for (size_t q = 0; q < n_q / 2; q++) {
-        if (H.pbwt_states[q].size() > d) {
-          total_haplos += H.pbwt_states[q][d].size();
-        }
-      }
-      vrb.bullet("after extraction pbwt_states: total haplotypes at depth " +
-                 std::to_string(d) + " = " + std::to_string(total_haplos));
-    }
+    // size_t max_depth = 0;
+    // for (size_t q = 0; q < n_q / 2; q++) {
+    //   max_depth = std::max(max_depth, H.pbwt_states[q].size());
+    // }
+    //
+    // for (size_t d = 0; d < max_depth; d++) {
+    //   size_t total_haplos = 0;
+    //   for (size_t q = 0; q < n_q / 2; q++) {
+    //     if (H.pbwt_states[q].size() > d) {
+    //       total_haplos += H.pbwt_states[q][d].size();
+    //     }
+    //   }
+    //   vrb.bullet("after extraction pbwt_states: total haplotypes at depth " +
+    //              std::to_string(d) + " = " + std::to_string(total_haplos));
+    // }
     phase_iteration();
   }
 
