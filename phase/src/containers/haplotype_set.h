@@ -160,8 +160,8 @@ public:
   void matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
                            const bool main_iteration,
                            std::vector<int> &uncommon_sites,
-                           const genotype_set &G, uint32_t n_sites,
-                           int threads);
+                           const genotype_set &G, uint32_t n_sites, int threads,
+                           haplotype_set &H, bool common);
   // void matchHapsFromMuPBWTSMEMS(rlpbwt_int &mupbwt, const variant_map &V,
   // const bool main_iteration, std::vector<int> &uncommon_sites,
   //                          std::vector<std::string> &queries);

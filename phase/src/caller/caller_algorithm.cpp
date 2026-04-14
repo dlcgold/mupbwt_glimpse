@@ -163,7 +163,7 @@ void caller::phase_loop() {
       uint32_t n_sites = mupbwt.n_sites;
 
       H.matchHapsFromMuPBWT(mupbwt, V, false, sites, G, n_sites,
-                            options["threads"].as<int>());
+                            options["threads"].as<int>(), H, use_mu_common);
       n_q = G.vecG.size() * 2;
     } else {
       H.matchHapsFromCompressedPBWTSmall(V, false);
@@ -208,7 +208,7 @@ void caller::phase_loop() {
       uint32_t n_sites = mupbwt.n_sites;
 
       H.matchHapsFromMuPBWT(mupbwt, V, true, sites, G, n_sites,
-                            options["threads"].as<int>());
+                            options["threads"].as<int>(), H, use_mu_common);
       n_q = G.vecG.size() * 2;
     } else {
       H.matchHapsFromCompressedPBWTSmall(V, true);

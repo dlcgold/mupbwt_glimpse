@@ -560,7 +560,8 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
                                         const bool main_iteration,
                                         std::vector<int> &uncommon_sites,
                                         const genotype_set &G, uint32_t n_sites,
-                                        int threads) {
+                                        int threads, haplotype_set &H,
+                                        bool common) {
   omp_set_num_threads(threads);
 
   if (Kpbwt == 0 || Kpbwt >= n_ref_haps) {
@@ -597,7 +598,7 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
 #pragma omp parallel num_threads(threads) default(none)                        \
     shared(mupbwt, G, n, n_sites, chunk_size, pbwt_depth, pbwt_states,         \
                tar_hapid2ind, thr_min, thr_short, thr_medium, n_haps, K,       \
-               sum_smem_time, sum_rank_time, MAX_EXACT_STEPS)
+               sum_smem_time, sum_rank_time, MAX_EXACT_STEPS, H, common)
   {
     std::vector<double> haplo_score(n_haps, 0.0);
     std::vector<uint32_t> active_haplos;
@@ -624,16 +625,30 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
       size_t ind_idx = q / 2;
       bool is_h1 = (q % 2 != 0);
       const auto &genotype_ptr = G.vecG[ind_idx];
+      const auto &source_H = is_h1 ? genotype_ptr->H1 : genotype_ptr->H0;
 
-      if (is_h1) {
+      if (!common) {
         for (size_t s = 0; s < n_sites; ++s) {
-          local_query_buffer[s] = genotype_ptr->H1[s] ? 1 : 0;
+          local_query_buffer[s] = source_H[s] ? 1 : 0;
         }
       } else {
         for (size_t s = 0; s < n_sites; ++s) {
-          local_query_buffer[s] = genotype_ptr->H0[s] ? 1 : 0;
+          if (H.flag_common[s]) {
+            local_query_buffer[s] = source_H[s] ? 1 : 0;
+          }
         }
       }
+      // if (is_h1) {
+      //   for (size_t s = 0; s < n_sites; ++s) {
+      //     if (!common || (common && H.flag_common[s]))
+      //       local_query_buffer[s] = genotype_ptr->H1[s] ? 1 : 0;
+      //   }
+      // } else {
+      //   for (size_t s = 0; s < n_sites; ++s) {
+      //     if (!common || (common && H.flag_common[s]))
+      //       local_query_buffer[s] = genotype_ptr->H0[s] ? 1 : 0;
+      //   }
+      // }
 
       const uint8_t *query = local_query_buffer.data();
       uint32_t p = 0, p_p = 0;

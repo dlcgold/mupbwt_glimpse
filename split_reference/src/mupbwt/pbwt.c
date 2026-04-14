@@ -212,7 +212,7 @@
 /* } */
 
 void pbwt_build_af(pbwt *pbwt, std::string fref, ref_haplotype_set &H,
-                   variant_map &V, std::string &region) {
+                   variant_map &V, std::string &region, bool common) {
 
   tac.clock();
   bool keep_mono = false;
@@ -324,6 +324,17 @@ void pbwt_build_af(pbwt *pbwt, std::string fref, ref_haplotype_set &H,
       continue;
     }
 
+    if (common && !H.flag_common[i_site]) {
+      i_site++;
+      prog_bar += prog_step;
+      vrb.progress(" * mu-PBWT building  ", prog_bar);
+      /* l_k1++; */
+      continue;
+    }
+
+    /* else { */
+    /* l_k2++; */
+    /* } */
 #ifdef __XSI__
     ngt_ref = c_xcf_get_genotypes(c_xcf_p, 0, sr->readers[0].header, line_ref,
                                   &gt_arr_ref, &ngt_arr_ref);
@@ -336,7 +347,7 @@ void pbwt_build_af(pbwt *pbwt, std::string fref, ref_haplotype_set &H,
     idx_ref_hap = 0;
     pbwt->n_sites++;
 
-    if (i_site == 0) {
+    if (i_site == 0 || c == 0) {
       int max_ploidy_ref = 0;
       int n_ref_haploid = 0;
 

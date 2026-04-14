@@ -58,7 +58,7 @@ typedef struct {
 
 void pbwt_build(char *filename, pbwt *pbwt, int threads);
 void pbwt_build_af(pbwt *pbwt, std::string fref, ref_haplotype_set &H,
-                   variant_map &V, std::string &region);
+                   variant_map &V, std::string &region, bool common);
 void pbwt_update(uint8_t *col, uint32_t **pa, uint32_t **da, uint32_t n_h);
 
 uv_res get_uv(const pbwt_col *col, uint32_t r);
