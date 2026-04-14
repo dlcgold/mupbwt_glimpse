@@ -380,7 +380,7 @@ void ref_genotype_reader::parseRefGenotypes(bcf_srs_t *sr, bcf_srs_t *srm,
 
   auto memorize_file = output_prefix + "_" + reg_out + ".ser";
   pbwt mupbwt;
-  pbwt_build_af(&mupbwt, fref, H, V, V.input_gregion);
+  pbwt_build_af(&mupbwt, fref, H, V, V.input_gregion, use_common);
   FILE *out = fopen(memorize_file.c_str(), "wb");
   if (!out) {
     perror("fopen");
