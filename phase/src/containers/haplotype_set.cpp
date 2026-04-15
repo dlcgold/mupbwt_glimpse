@@ -591,7 +591,6 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
 
   uint32_t n = G.vecG.size() * 2;
   const uint32_t MAX_EXACT_STEPS = K * 4;
-
   double sum_smem_time = 0.0;
   double sum_rank_time = 0.0;
 
@@ -671,12 +670,18 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
 
         if (match_len < thr_short) {
           depth_limit = K;
+          if (common)
+            depth_limit *= 3;
+
           exact_only = true;
           weight = contrib * contrib;
 
           // weight = contrib * 0.5;
         } else if (match_len < thr_medium) {
           depth_limit = K * 2;
+          if (common)
+            depth_limit *= 3;
+
           // weight = contrib ;
 
           weight = contrib * contrib;
@@ -685,6 +690,8 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
           // weight = std::pow(contrib, 1.2);
           exact_only = true;
           depth_limit = MAX_EXACT_STEPS;
+          if (common)
+            depth_limit *= 3;
         }
 
         auto add_score = [&](uint32_t h_id) {
