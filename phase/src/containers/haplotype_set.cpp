@@ -670,8 +670,6 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
 
         if (match_len < thr_short) {
           depth_limit = K;
-          if (common)
-            depth_limit = mupbwt.n_haps;
           exact_only = true;
           weight = contrib * contrib;
 
@@ -679,8 +677,6 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
         } else if (match_len < thr_medium) {
           depth_limit = K * 2;
 
-          if (common)
-            depth_limit = mupbwt.n_haps;
           // weight = contrib ;
 
           weight = contrib * contrib;
