@@ -584,9 +584,14 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
   // const double thr_min = n_sites / 100000.0;
 
   const double thr_min = 2;
-  const double thr_short = n_sites / 1000000.0;
-  const double thr_medium = n_sites / 100000.0;
+  double thr_short = n_sites / 1000000.0;
+  double thr_medium = n_sites / 100000.0;
 
+  if (common) {
+
+    thr_short = n_sites / 10.0;
+    thr_medium = n_sites / 5.0;
+  }
   uint32_t n_haps = mupbwt.n_haps;
 
   uint32_t n = G.vecG.size() * 2;
