@@ -1,0 +1,203 @@
+RES_DIR = "test/resources"
+OUT_DIR = "test/results"
+BENCH_DIR = f"{OUT_DIR}/benchmarks"
+
+GLIMPSE_SPLIT_REF = "/home/dlcgold/Documenti/mupbwt_glimpse_c/split_reference/bin/GLIMPSE2_split_reference"
+GLIMPSE_PHASE = "/home/dlcgold/Documenti/mupbwt_glimpse_c/phase/bin/GLIMPSE2_phase"
+GLIMPSE_CONCORDANCE = "/home/dlcgold/Documenti/mupbwt_glimpse_c/concordance/bin/GLIMPSE2_concordance"
+
+THREADS = 4
+REF_FILE = "/home/dlcgold/Documenti/mupbwt_glimpse_c/10k/ref_panel_10k_msprime_sim.bcf"
+BAM_LIST = "/home/dlcgold/Documenti/mupbwt_glimpse_c/unmasked_10k/reads100_150_default/reads.txt"
+TARGET_FILE = "/home/dlcgold/Documenti/mupbwt_glimpse_c/unmasked_10k/target_unmasked_100_msprime_sim.bcf"
+FRQ_FILE = "/home/dlcgold/Documenti/mupbwt_glimpse_c/unmasked_10k/frq.bcf"
+
+INPUT_REGION = "1:77-9999973"
+OUTPUT_REGION = "1:77-9999973"
+REGION_STR = INPUT_REGION.replace(":", "_").replace("-", "_")
+
+#MAFS = [0.0001, 0.001, 0.005, 0.01, 0.05] 
+MAFS = [0.0001, 0.001, 0.005, 0.01, 0.02, 0.05, 0.07, 0.1,]
+MODES = ["std", "common"]
+
+PHASE_MAIN = 2
+PHASE_BURNIN = 1
+
+
+
+
+rule all:
+    input:
+        f"{OUT_DIR}/concordance/concordance_std.rsquare.grp.txt.gz",
+        f"{OUT_DIR}/concordance/concordance_std.error.grp.txt.gz",
+        expand(f"{OUT_DIR}/concordance/concordance_common_maf{{maf}}.rsquare.grp.txt.gz", maf=MAFS),
+        expand(f"{OUT_DIR}/concordance/concordance_common_maf{{maf}}.error.grp.txt.gz", maf=MAFS),
+        f"{OUT_DIR}/pareto_analysis.png",
+        f"{OUT_DIR}/accuracy_per_bin.png"
+
+rule split_reference_std:
+    input:
+        ref = REF_FILE
+    output:
+        bin_ref = f"{OUT_DIR}/split_ref/ref_std_{REGION_STR}.bin"
+    benchmark:
+        f"{BENCH_DIR}/split_ref/bench_std.tsv"
+    threads: 1
+    params:
+        bin = GLIMPSE_SPLIT_REF,
+        out_prefix = f"{OUT_DIR}/split_ref/ref_std",
+        in_reg = INPUT_REGION,
+        out_reg = OUTPUT_REGION
+    shell:
+        """
+        {params.bin} \
+            --reference {input.ref} \
+            --input-region {params.in_reg} \
+            --output-region {params.out_reg} \
+            --output {params.out_prefix}
+        """
+
+rule phase_std:
+    input:
+        bam_list = BAM_LIST,
+        bin_ref = f"{OUT_DIR}/split_ref/ref_std_{REGION_STR}.bin"
+    output:
+        bcf = f"{OUT_DIR}/phased/phased_std.bcf"
+    benchmark:
+        f"{BENCH_DIR}/phase/bench_std.tsv"
+    threads: 5
+    params:
+        bin = GLIMPSE_PHASE,
+        main_iter = PHASE_MAIN,
+        burnin_iter = PHASE_BURNIN
+    shell:
+        """
+        {params.bin} \
+            --bam-list {input.bam_list} \
+            --reference {input.bin_ref} \
+            --output {output.bcf} \
+            --main {params.main_iter} --burnin {params.burnin_iter} --thread {threads} \
+            --mupbwt --mupbwt-smems
+        """
+
+rule prep_concordance_list_std:
+    input:
+        frq = FRQ_FILE,
+        target = TARGET_FILE,
+        phased_bcf = f"{OUT_DIR}/phased/phased_std.bcf"
+    output:
+        con_txt = f"{OUT_DIR}/concordance/con_input_std.txt"
+    shell:
+        """
+        echo -e "1\t{input.frq}\t{input.target}\t{input.phased_bcf}" > {output.con_txt}
+        """
+
+rule concordance_std:
+    input:
+        con_txt = f"{OUT_DIR}/concordance/con_input_std.txt"
+    output:
+        rsquare = f"{OUT_DIR}/concordance/concordance_std.rsquare.grp.txt.gz",
+        error = f"{OUT_DIR}/concordance/concordance_std.error.grp.txt.gz"
+    threads: 4
+    params:
+        bin = GLIMPSE_CONCORDANCE,
+        out_prefix = f"{OUT_DIR}/concordance/concordance_std"
+    shell:
+        """
+        {params.bin} \
+            --input {input.con_txt} \
+            --output {params.out_prefix} \
+            --bins 0.00000 0.00100 0.00200 0.00500 0.01000 0.05000 0.10000 0.20000 0.50000 \
+            --thread {threads} \
+            --gt-val
+        """
+
+rule split_reference_common:
+    input:
+        ref = REF_FILE
+    output:
+        bin_ref = f"{OUT_DIR}/split_ref/ref_common_maf{{maf}}_{REGION_STR}.bin"
+    benchmark:
+        f"{BENCH_DIR}/split_ref/bench_common_maf{{maf}}.tsv"
+    threads: 1
+    params:
+        bin = GLIMPSE_SPLIT_REF,
+        out_prefix = f"{OUT_DIR}/split_ref/ref_common_maf{{maf}}",
+        in_reg = INPUT_REGION,
+        out_reg = OUTPUT_REGION
+    shell:
+        """
+        {params.bin} \
+            --reference {input.ref} \
+            --input-region {params.in_reg} \
+            --output-region {params.out_reg} \
+            --sparse-maf {wildcards.maf} \
+            --output {params.out_prefix} \
+            --mupbwt-common
+        """
+
+rule phase_common:
+    input:
+        bam_list = BAM_LIST,
+        bin_ref = f"{OUT_DIR}/split_ref/ref_common_maf{{maf}}_{REGION_STR}.bin"
+    output:
+        bcf = f"{OUT_DIR}/phased/phased_common_maf{{maf}}.bcf"
+    benchmark:
+        f"{BENCH_DIR}/phase/bench_common_maf{{maf}}.tsv"
+    threads: 4
+    params:
+        bin = GLIMPSE_PHASE,
+        main_iter = PHASE_MAIN,
+        burnin_iter = PHASE_BURNIN
+    shell:
+        """
+        {params.bin} \
+            --bam-list {input.bam_list} \
+            --reference {input.bin_ref} \
+            --output {output.bcf} \
+            --main {params.main_iter} --burnin {params.burnin_iter} --thread {threads} \
+            --mupbwt --mupbwt-smems --mupbwt-common
+        """
+
+rule prep_concordance_list_common:
+    input:
+        frq = FRQ_FILE,
+        target = TARGET_FILE,
+        phased_bcf = f"{OUT_DIR}/phased/phased_common_maf{{maf}}.bcf"
+    output:
+        con_txt = f"{OUT_DIR}/concordance/con_input_common_maf{{maf}}.txt"
+    shell:
+        """
+        echo -e "1\t{input.frq}\t{input.target}\t{input.phased_bcf}" > {output.con_txt}
+        """
+
+rule concordance_common:
+    input:
+        con_txt = f"{OUT_DIR}/concordance/con_input_common_maf{{maf}}.txt"
+    output:
+        rsquare = f"{OUT_DIR}/concordance/concordance_common_maf{{maf}}.rsquare.grp.txt.gz",
+        error = f"{OUT_DIR}/concordance/concordance_common_maf{{maf}}.error.grp.txt.gz"
+    threads: 4
+    params:
+        bin = GLIMPSE_CONCORDANCE,
+        out_prefix = f"{OUT_DIR}/concordance/concordance_common_maf{{maf}}"
+    shell:
+        """
+        {params.bin} \
+            --input {input.con_txt} \
+            --output {params.out_prefix} \
+            --bins 0.00000 0.00100 0.00200 0.00500 0.01000 0.05000 0.10000 0.20000 0.50000 \
+            --thread {threads} \
+            --gt-val
+        """
+
+rule plot_pareto:
+    input:
+        benchmarks = expand(f"{BENCH_DIR}/phase/bench_common_maf{{maf}}.tsv", maf=MAFS) + [f"{BENCH_DIR}/phase/bench_std.tsv"],
+        concordance = expand(f"{OUT_DIR}/concordance/concordance_common_maf{{maf}}.rsquare.grp.txt.gz", maf=MAFS) + [f"{OUT_DIR}/concordance/concordance_std.rsquare.grp.txt.gz"]
+    output:
+        plot = f"{OUT_DIR}/pareto_analysis.png",
+        plot_bins = f"{OUT_DIR}/accuracy_per_bin.png"
+    script:
+        "scripts/plot_pareto.py"
+
