@@ -1,0 +1,206 @@
+RES_DIR = "test/resources"
+OUT_DIR = "test/results"
+BENCH_DIR = f"{OUT_DIR}/benchmarks"
+
+GLIMPSE_SPLIT_REF = "/home/dlcgold/Documenti/mupbwt_glimpse_c/split_reference/bin/GLIMPSE2_split_reference"
+GLIMPSE_PHASE = "/home/dlcgold/Documenti/mupbwt_glimpse_c/phase/bin/GLIMPSE2_phase"
+GLIMPSE_CONCORDANCE = "/home/dlcgold/Documenti/mupbwt_glimpse_c/concordance/bin/GLIMPSE2_concordance"
+
+REF_FILE = "/home/dlcgold/Documenti/mupbwt_glimpse_c/10k/ref_panel_10k_msprime_sim.bcf"
+BAM_LIST = "/home/dlcgold/Documenti/mupbwt_glimpse_c/unmasked_10k/reads100_150_default/reads.txt"
+TARGET_FILE = "/home/dlcgold/Documenti/mupbwt_glimpse_c/unmasked_10k/target_unmasked_100_msprime_sim.bcf"
+FRQ_FILE = "/home/dlcgold/Documenti/mupbwt_glimpse_c/unmasked_10k/frq.bcf"
+
+INPUT_REGION = "1:77-9999973"
+OUTPUT_REGION = "1:77-9999973"
+REGION_STR = INPUT_REGION.replace(":", "_").replace("-", "_")
+# MIN_THRS = ["10", "1000", "1000000"]
+# MED_THRS = ["5", "100", 100000"]
+# MAX_VALS = ["2", "4", "16"]
+MIN_THRS = ["10",  "1000000"]
+MED_THRS = ["5", "100000"]
+MAX_VALS = ["2", "4"]
+PHASE_MAIN = 2
+PHASE_BURNIN = 1
+PHASE_THREADS = 4 
+PHASE_RAM_GB = 4
+
+
+rule all:
+    input:
+        expand(f"{OUT_DIR}/concordance/concordance_std_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.rsquare.grp.txt.gz", min_thr=MIN_THRS, med_thr=MED_THRS, max_val=MAX_VALS),
+        expand(f"{OUT_DIR}/concordance/concordance_common_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.rsquare.grp.txt.gz", min_thr=MIN_THRS, med_thr=MED_THRS, max_val=MAX_VALS),
+        f"{OUT_DIR}/plots/pareto_main.png",
+        f"{OUT_DIR}/plots/pareto_rare_variants.png",
+        f"{OUT_DIR}/plots/hyperparameters_impact.png",
+        f"{OUT_DIR}/plots/accuracy_per_bin.png"
+rule split_reference_std:
+    input:
+        ref = REF_FILE
+    output:
+        bin_ref = f"{OUT_DIR}/split_ref/ref_std_{REGION_STR}.bin"
+    threads: 1
+    params:
+        bin = GLIMPSE_SPLIT_REF,
+        out_prefix = f"{OUT_DIR}/split_ref/ref_std",
+        in_reg = INPUT_REGION,
+        out_reg = OUTPUT_REGION
+    shell:
+        """
+        {params.bin} \
+            --reference {input.ref} \
+            --input-region {params.in_reg} \
+            --output-region {params.out_reg} \
+            --output {params.out_prefix}
+        """
+
+rule split_reference_common:
+    input:
+        ref = REF_FILE
+    output:
+        bin_ref = f"{OUT_DIR}/split_ref/ref_common_{REGION_STR}.bin"
+    threads: 1
+    params:
+        bin = GLIMPSE_SPLIT_REF,
+        out_prefix = f"{OUT_DIR}/split_ref/ref_common",
+        in_reg = INPUT_REGION,
+        out_reg = OUTPUT_REGION
+    shell:
+        """
+        {params.bin} \
+            --reference {input.ref} \
+            --input-region {params.in_reg} \
+            --output-region {params.out_reg} \
+            --output {params.out_prefix} \
+            --mupbwt-common
+        """
+
+rule phase_std:
+    input:
+        bam_list = BAM_LIST,
+        bin_ref = f"{OUT_DIR}/split_ref/ref_std_{REGION_STR}.bin"
+    output:
+        bcf = f"{OUT_DIR}/phased/phased_std_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.bcf"
+    benchmark:
+        f"{BENCH_DIR}/phase/bench_std_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.tsv"
+    threads: PHASE_THREADS
+    params:
+        bin = GLIMPSE_PHASE,
+        main_iter = PHASE_MAIN,
+        burnin_iter = PHASE_BURNIN
+    resources:
+        mem_gb = PHASE_RAM_GB
+    shell:
+        """
+        systemd-run --user --scope -p MemoryMax={resources.mem_gb}G \
+        {params.bin} \
+            --bam-list {input.bam_list} \
+            --reference {input.bin_ref} \
+            --output {output.bcf} \
+            --main {params.main_iter} --burnin {params.burnin_iter} --thread {threads} \
+            --mupbwt --mupbwt-smems \
+            --mupbwt-min-thr {wildcards.min_thr} --mupbwt-medium-thr {wildcards.med_thr} --mupbwt-max {wildcards.max_val}
+        """
+
+rule phase_common:
+    input:
+        bam_list = BAM_LIST,
+        bin_ref = f"{OUT_DIR}/split_ref/ref_common_{REGION_STR}.bin"
+    output:
+        bcf = f"{OUT_DIR}/phased/phased_common_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.bcf"
+    benchmark:
+        f"{BENCH_DIR}/phase/bench_common_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.tsv"
+    threads: PHASE_THREADS
+    params:
+        bin = GLIMPSE_PHASE,
+        main_iter = PHASE_MAIN,
+        burnin_iter = PHASE_BURNIN
+    resources:
+        mem_gb = PHASE_RAM_GB
+    shell:
+        """
+        systemd-run --user --scope -p MemoryMax={resources.mem_gb}G \
+        {params.bin} \
+            --bam-list {input.bam_list} \
+            --reference {input.bin_ref} \
+            --output {output.bcf} \
+            --main {params.main_iter} --burnin {params.burnin_iter} --thread {threads} \
+            --mupbwt --mupbwt-smems --mupbwt-common \
+            --mupbwt-min-thr {wildcards.min_thr} --mupbwt-medium-thr {wildcards.med_thr} --mupbwt-max {wildcards.max_val}
+        """
+
+rule prep_concordance_list_std:
+    input:
+        frq = FRQ_FILE,
+        target = TARGET_FILE,
+        phased_bcf = f"{OUT_DIR}/phased/phased_std_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.bcf"
+    output:
+        con_txt = f"{OUT_DIR}/concordance/con_input_std_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.txt"
+    shell:
+        """
+        echo -e "1\t{input.frq}\t{input.target}\t{input.phased_bcf}" > {output.con_txt}
+        """
+
+rule prep_concordance_list_common:
+    input:
+        frq = FRQ_FILE,
+        target = TARGET_FILE,
+        phased_bcf = f"{OUT_DIR}/phased/phased_common_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.bcf"
+    output:
+        con_txt = f"{OUT_DIR}/concordance/con_input_common_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.txt"
+    shell:
+        """
+        echo -e "1\t{input.frq}\t{input.target}\t{input.phased_bcf}" > {output.con_txt}
+        """
+
+rule concordance_std:
+    input:
+        con_txt = f"{OUT_DIR}/concordance/con_input_std_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.txt"
+    output:
+        rsquare = f"{OUT_DIR}/concordance/concordance_std_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.rsquare.grp.txt.gz",
+        error = f"{OUT_DIR}/concordance/concordance_std_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.error.grp.txt.gz"
+    threads: 4
+    params:
+        bin = GLIMPSE_CONCORDANCE,
+        out_prefix = f"{OUT_DIR}/concordance/concordance_std_min{{min_thr}}_med{{med_thr}}_max{{max_val}}"
+    shell:
+        """
+        {params.bin} \
+            --input {input.con_txt} \
+            --output {params.out_prefix} \
+            --bins 0.00000 0.00100 0.00200 0.00500 0.01000 0.05000 0.10000 0.20000 0.50000 \
+            --thread {threads} \
+            --gt-val
+        """
+
+rule concordance_common:
+    input:
+        con_txt = f"{OUT_DIR}/concordance/con_input_common_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.txt"
+    output:
+        rsquare = f"{OUT_DIR}/concordance/concordance_common_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.rsquare.grp.txt.gz",
+        error = f"{OUT_DIR}/concordance/concordance_common_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.error.grp.txt.gz"
+    threads: 4
+    params:
+        bin = GLIMPSE_CONCORDANCE,
+        out_prefix = f"{OUT_DIR}/concordance/concordance_common_min{{min_thr}}_med{{med_thr}}_max{{max_val}}"
+    shell:
+        """
+        {params.bin} \
+            --input {input.con_txt} \
+            --output {params.out_prefix} \
+            --bins 0.00000 0.00100 0.00200 0.00500 0.01000 0.05000 0.10000 0.20000 0.50000 \
+            --thread {threads} \
+            --gt-val
+        """
+
+rule plot_pareto:
+    input:
+        benchmarks = expand(f"{BENCH_DIR}/phase/bench_{{mode}}_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.tsv", mode=["std", "common"], min_thr=MIN_THRS, med_thr=MED_THRS, max_val=MAX_VALS),
+        concordance = expand(f"{OUT_DIR}/concordance/concordance_{{mode}}_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.rsquare.grp.txt.gz", mode=["std", "common"], min_thr=MIN_THRS, med_thr=MED_THRS, max_val=MAX_VALS)
+    output:
+        main = f"{OUT_DIR}/plots/pareto_main.png",
+        rare = f"{OUT_DIR}/plots/pareto_rare_variants.png",
+        impact = f"{OUT_DIR}/plots/hyperparameters_impact.png",
+        bins = f"{OUT_DIR}/plots/accuracy_per_bin.png"
+    script:
+        "scripts/plot_pareto.py"
