@@ -18,7 +18,7 @@ def parse_bench(filepath):
     mode, min_thr, med_thr, max_val, label = parse_filename(filepath)
     df = pd.read_csv(filepath, sep='\t')
     return {
-        'Mode': mode, 'Min_Thr': min_thr, 'Med_Thr': med_thr, 'Max_Val': max_val, 
+        'Mode': mode, 'Min_Thr': int(min_thr), 'Med_Thr': int(med_thr), 'Max_Val': int(max_val), 
         'Label': label, 'Time_s': df['s'].iloc[0], 'RAM_MB': df['max_rss'].iloc[0]
     }
 
@@ -32,7 +32,7 @@ def parse_conc(filepath):
     rare_r2 = df.loc[df['Bin_ID'] == df['Bin_ID'].min(), 'R2'].values[0]
     
     summary = {
-        'Mode': mode, 'Min_Thr': min_thr, 'Med_Thr': med_thr, 'Max_Val': max_val, 
+        'Mode': mode, 'Min_Thr': int(min_thr), 'Med_Thr': int(med_thr), 'Max_Val': int(max_val), 
         'Label': label, 'Mean_R2': mean_r2, 'Rare_R2': rare_r2
     }
     
@@ -52,6 +52,7 @@ def get_pareto_front(df, x_col, y_col):
     return front_x, front_y
 
 os.makedirs(os.path.dirname(snakemake.output.main), exist_ok=True)
+os.makedirs(os.path.dirname(snakemake.output.csv_summary), exist_ok=True)
 
 bench_data = [parse_bench(f) for f in snakemake.input.benchmarks]
 conc_results = [parse_conc(f) for f in snakemake.input.concordance]
@@ -60,7 +61,10 @@ conc_summary = [res[0] for res in conc_results]
 df_bins = pd.concat([res[1] for res in conc_results], ignore_index=True)
 
 df = pd.merge(pd.DataFrame(bench_data), pd.DataFrame(conc_summary), on=['Mode', 'Min_Thr', 'Med_Thr', 'Max_Val', 'Label'])
-df.sort_values(by=['Max_Val', 'Min_Thr', 'Med_Thr'], inplace=True)
+df.sort_values(by=['Mode', 'Max_Val', 'Min_Thr', 'Med_Thr'], inplace=True)
+
+df.to_csv(snakemake.output.csv_summary, index=False)
+df_bins.to_csv(snakemake.output.csv_binned, index=False)
 
 sns.set_theme(style="whitegrid")
 
@@ -80,7 +84,6 @@ axs[1].set_title("Main Pareto: Mean R\u00B2 vs Memory Usage", fontsize=14, fontw
 axs[1].set_xlabel("Peak RAM (MB) \u2192 Lower is better")
 axs[1].set_ylabel("Mean R\u00B2 \u2192 Higher is better")
 axs[1].legend()
-
 plt.tight_layout()
 plt.savefig(snakemake.output.main, dpi=300)
 plt.close()
@@ -97,19 +100,24 @@ plt.tight_layout()
 plt.savefig(snakemake.output.rare, dpi=300)
 plt.close()
 
+df_plot = df.copy()
+df_plot['Min_Thr'] = df_plot['Min_Thr'].astype(str)
+df_plot['Med_Thr'] = df_plot['Med_Thr'].astype(str)
+df_plot['Max_Val'] = df_plot['Max_Val'].astype(str)
+
 fig, axs = plt.subplots(2, 3, figsize=(18, 10))
-sns.boxplot(data=df, x='Min_Thr', y='Time_s', ax=axs[0, 0], palette='Blues')
+sns.boxplot(data=df_plot, x='Min_Thr', y='Time_s', ax=axs[0, 0], palette='Blues')
 axs[0, 0].set_title("Time by Min_Thr")
-sns.boxplot(data=df, x='Med_Thr', y='Time_s', ax=axs[0, 1], palette='Greens')
+sns.boxplot(data=df_plot, x='Med_Thr', y='Time_s', ax=axs[0, 1], palette='Greens')
 axs[0, 1].set_title("Time by Med_Thr")
-sns.boxplot(data=df, x='Max_Val', y='Time_s', ax=axs[0, 2], palette='Reds')
+sns.boxplot(data=df_plot, x='Max_Val', y='Time_s', ax=axs[0, 2], palette='Reds')
 axs[0, 2].set_title("Time by Max_Val")
 
-sns.boxplot(data=df, x='Min_Thr', y='Mean_R2', ax=axs[1, 0], palette='Blues')
+sns.boxplot(data=df_plot, x='Min_Thr', y='Mean_R2', ax=axs[1, 0], palette='Blues')
 axs[1, 0].set_title("Mean R\u00B2 by Min_Thr")
-sns.boxplot(data=df, x='Med_Thr', y='Mean_R2', ax=axs[1, 1], palette='Greens')
+sns.boxplot(data=df_plot, x='Med_Thr', y='Mean_R2', ax=axs[1, 1], palette='Greens')
 axs[1, 1].set_title("Mean R\u00B2 by Med_Thr")
-sns.boxplot(data=df, x='Max_Val', y='Mean_R2', ax=axs[1, 2], palette='Reds')
+sns.boxplot(data=df_plot, x='Max_Val', y='Mean_R2', ax=axs[1, 2], palette='Reds')
 axs[1, 2].set_title("Mean R\u00B2 by Max_Val")
 plt.tight_layout()
 plt.savefig(snakemake.output.impact, dpi=300)

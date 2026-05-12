@@ -33,7 +33,9 @@ rule all:
         f"{OUT_DIR}/plots/pareto_main.png",
         f"{OUT_DIR}/plots/pareto_rare_variants.png",
         f"{OUT_DIR}/plots/hyperparameters_impact.png",
-        f"{OUT_DIR}/plots/accuracy_per_bin.png"
+        f"{OUT_DIR}/plots/accuracy_per_bin.png",
+        f"{OUT_DIR}/csv/results_summary.csv",
+        f"{OUT_DIR}/csv/results_binned.csv"
 rule split_reference_std:
     input:
         ref = REF_FILE
@@ -193,6 +195,7 @@ rule concordance_common:
             --gt-val
         """
 
+
 rule plot_pareto:
     input:
         benchmarks = expand(f"{BENCH_DIR}/phase/bench_{{mode}}_min{{min_thr}}_med{{med_thr}}_max{{max_val}}.tsv", mode=["std", "common"], min_thr=MIN_THRS, med_thr=MED_THRS, max_val=MAX_VALS),
@@ -201,6 +204,8 @@ rule plot_pareto:
         main = f"{OUT_DIR}/plots/pareto_main.png",
         rare = f"{OUT_DIR}/plots/pareto_rare_variants.png",
         impact = f"{OUT_DIR}/plots/hyperparameters_impact.png",
-        bins = f"{OUT_DIR}/plots/accuracy_per_bin.png"
+        bins = f"{OUT_DIR}/plots/accuracy_per_bin.png",
+        csv_summary = f"{OUT_DIR}/csv/results_summary.csv",
+        csv_binned = f"{OUT_DIR}/csv/results_binned.csv"
     script:
         "scripts/plot_pareto.py"
