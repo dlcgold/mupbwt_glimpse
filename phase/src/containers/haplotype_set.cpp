@@ -556,12 +556,10 @@ void haplotype_set::allocatePBWT(const int _pbwt_depth,
 // }
 //
 
-void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
-                                        const bool main_iteration,
-                                        std::vector<int> &uncommon_sites,
-                                        const genotype_set &G, uint32_t n_sites,
-                                        int threads, haplotype_set &H,
-                                        bool common) {
+void haplotype_set::matchHapsFromMuPBWT(
+    pbwt &mupbwt, const variant_map &V, const bool main_iteration,
+    std::vector<int> &uncommon_sites, const genotype_set &G, uint32_t n_sites,
+    int threads, haplotype_set &H, bool common, float mi, float me, int ma) {
   omp_set_num_threads(threads);
 
   if (Kpbwt == 0 || Kpbwt >= n_ref_haps) {
@@ -584,18 +582,22 @@ void haplotype_set::matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
   // const double thr_min = n_sites / 100000.0;
 
   const double thr_min = 2;
-  double thr_short = n_sites / 1000000.0;
-  double thr_medium = n_sites / 100000.0;
+  // double thr_short = n_sites / 1000000.0;
+  // double thr_medium = n_sites / 100000.0;
 
-  if (common) {
+  double thr_short = n_sites / mi;
+  double thr_medium = n_sites / me;
 
-    thr_short = n_sites / 10.0;
-    thr_medium = n_sites / 5.0;
-  }
+  // if (common) {
+  //
+  //   thr_short = n_sites / 10.0;
+  //   thr_medium = n_sites / 5.0;
+  // }
   uint32_t n_haps = mupbwt.n_haps;
 
   uint32_t n = G.vecG.size() * 2;
-  const uint32_t MAX_EXACT_STEPS = K * 4;
+  // const uint32_t MAX_EXACT_STEPS = K * 4;
+  const uint32_t MAX_EXACT_STEPS = K * ma;
   double sum_smem_time = 0.0;
   double sum_rank_time = 0.0;
 

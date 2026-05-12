@@ -83,7 +83,13 @@ void caller::declare_options() {
       "Only used together with --input-gl. Use FORMAT/GL field instead of "
       "FORMAT/PL to read genotyope likelihoods")("mupbwt", "use mupbwt")(
       "mupbwt-smems", "use mupbwt smems")("mupbwt-mpsc", "use mupbwt mpsc")(
-      "mupbwt-common", "use mupbwt only on common variants");
+      "mupbwt-common", "use mupbwt only on common variants")(
+      "mupbwt-min-thr", bpo::value<float>()->default_value(1000000.0),
+      "mupbwt minimum threshold over tot for smems")(
+      "mupbwt-medium-thr", bpo::value<float>()->default_value(100000.0),
+      "mupbwt medium threshold over tot for smems")(
+      "mupbwt-max", bpo::value<int>()->default_value(4),
+      "mupbwt max multiplier size smems");
 
   bpo::options_description opt_algo("Model parameters");
   opt_algo.add_options()(
@@ -571,6 +577,12 @@ void caller::verbose_options() {
                no_yes[options.count("mupbwt-mpsc")] + "]");
     vrb.bullet("mupbwt-common        : [" +
                no_yes[options.count("mupbwt-common")] + "]");
+    vrb.bullet("mupbwt-min-thr       : [" +
+               stb.str(options["mupbwt-min-thr"].as<float>()) + "]");
+    vrb.bullet("mupbwt-medium-thr    : [" +
+               stb.str(options["mupbwt-medium-thr"].as<float>()) + "]");
+    vrb.bullet("mupbwt-max           : [" +
+               stb.str(options["mupbwt-max"].as<int>()) + "]");
   }
   if (no_yes[options.count("mupbwt")] == "YES") {
     use_mu = true;
