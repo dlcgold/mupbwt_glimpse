@@ -89,7 +89,12 @@ void caller::declare_options() {
       "mupbwt-medium-thr", bpo::value<float>()->default_value(100000.0),
       "mupbwt medium threshold over tot for smems")(
       "mupbwt-max", bpo::value<int>()->default_value(4),
-      "mupbwt max multiplier size smems");
+      "mupbwt max multiplier size smems")(
+      "mupbwt-chunk", bpo::value<int>()->default_value(70),
+      "mupbwt chunk size (bigger -> more memory)")(
+      "mupbwt-depth", bpo::value<int>()->default_value(10),
+      "mupbwt depth size (bigger -> more memory)")
+  ;
 
   bpo::options_description opt_algo("Model parameters");
   opt_algo.add_options()(
@@ -412,6 +417,9 @@ void caller::check_options() {
 
   if (options["max-depth"].as<int>() < 10)
     vrb.error("Max depth has been set too low [< 10].");
+
+  if (options["mupbwt-depth"].as<int>() > options["max-depth"].as<int>())
+    vrb.error("mupbwt depth must be <= than max depth");
 }
 
 void caller::verbose_files() {
@@ -583,6 +591,10 @@ void caller::verbose_options() {
                stb.str(options["mupbwt-medium-thr"].as<float>()) + "]");
     vrb.bullet("mupbwt-max           : [" +
                stb.str(options["mupbwt-max"].as<int>()) + "]");
+    vrb.bullet("mupbwt-chunk         : [" +
+               stb.str(options["mupbwt-chunk"].as<int>()) + "]");
+    vrb.bullet("mupbwt-depth         : [" +
+               stb.str(options["mupbwt-depth"].as<int>()) + "]");
   }
   if (no_yes[options.count("mupbwt")] == "YES") {
     use_mu = true;
