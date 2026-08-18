@@ -82,7 +82,7 @@ public:
   // REGION
   void buildCoordinates();
 
-  bool mu_common;
+  bool build_mupbwt;
 };
 
 #endif

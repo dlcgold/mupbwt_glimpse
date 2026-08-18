@@ -57,8 +57,21 @@ typedef struct {
 } pbwt;
 
 void pbwt_build(char *filename, pbwt *pbwt, int threads);
-void pbwt_build_af(pbwt *pbwt, std::string fref, ref_haplotype_set &H,
-                   variant_map &V, std::string &region, bool common);
+
+typedef struct {
+  uint32_t *pa, *da, *l_pa, *l_da;
+  uint8_t *c_col;
+  int_vec *supp_b, *supp_e, *supp_pa_b, *supp_da_b, *supp_pa_e;
+  uint32_t c;
+} pbwt_build_state;
+
+void pbwt_build_af_init(pbwt *pbwt, pbwt_build_state *st, int n_ref_samples);
+void pbwt_build_af_process_site(pbwt *pbwt, pbwt_build_state *st,
+                                const int *gt_arr_ref, int line_max_ploidy,
+                                const std::vector<int> &ploidy_ref_samples,
+                                int n_ref_samples);
+void pbwt_build_af_finalize(pbwt *pbwt, pbwt_build_state *st);
+
 void pbwt_update(uint8_t *col, uint32_t **pa, uint32_t **da, uint32_t n_h);
 
 uv_res get_uv(const pbwt_col *col, uint32_t r);

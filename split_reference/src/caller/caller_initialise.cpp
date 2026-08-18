@@ -76,7 +76,10 @@ void caller::read_files_and_initialise() {
                                 options.count("keep-monomorphic-ref-sites"));
     readerG.readRefPanel(options["reference"].as<std::string>(),
                          options["threads"].as<int>(), output_prefix, reg_out,
-                         mu_common);
+                         build_mupbwt);
+
+    if (!build_mupbwt)
+      H.build_sparsePBWT(V);
 
     if (readerGM.pos_cm.size() > 1)
       V.setGeneticMap(readerGM);
@@ -85,8 +88,6 @@ void caller::read_files_and_initialise() {
 
     vrb.bullet("Region spans " + stb.str(V.length()) + " bp and " +
                stb.str(V.lengthcM(), 2) + " cM");
-
-    H.build_sparsePBWT(V);
 
     vrb.print("Writing file...");
     tac.clock();

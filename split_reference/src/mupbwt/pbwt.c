@@ -13,507 +13,174 @@
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
 
-/* void pbwt_build(char *filename, pbwt *pbwt, int threads) { */
-/*   omp_set_num_threads(threads); */
-/*   htsFile *fp = hts_open(filename, "rb"); */
-/**/
-/*   fprintf(stderr, "Reading %s\n", filename); */
-/**/
-/*   if (fp == NULL) { */
-/*     fprintf(stderr, "%s NOT FOUND\n", filename); */
-/*     exit(-1); */
-/*   } */
-/**/
-/*   bcf_hdr_t *hdr = bcf_hdr_read(fp); */
-/*   bcf1_t *rec = bcf_init(); */
-/**/
-/*   pbwt->n_haps = bcf_hdr_nsamples(hdr) * 2; */
-/*   pbwt->n_sites = 0; */
-/**/
-/*   fprintf(stderr, "# haplotypes = %d\n", pbwt->n_haps); */
-/**/
-/*   uint32_t *pa = (uint32_t *)malloc(pbwt->n_haps * sizeof(uint32_t)); */
-/*   uint32_t *da = (uint32_t *)malloc(pbwt->n_haps * sizeof(uint32_t)); */
-/*   uint32_t *l_pa = (uint32_t *)malloc(pbwt->n_haps * sizeof(uint32_t)); */
-/*   uint32_t *l_da = (uint32_t *)malloc(pbwt->n_haps * sizeof(uint32_t)); */
-/**/
-/*   // uint32_t *thr = (uint32_t *)malloc(pbwt.n_haps * sizeof(uint32_t)); */
-/*   // uint32_t *thr = NULL; */
-/**/
-/*   int_vec *supp_b = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec)); */
-/*   int_vec *supp_e = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec)); */
-/**/
-/*   int_vec *supp_pa_b = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec)); */
-/*   int_vec *supp_da_b = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec)); */
-/*   int_vec *supp_pa_e = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec)); */
-/**/
-/*   for (unsigned int i = 0; i < pbwt->n_haps; i++) { */
-/*     pa[i] = i; */
-/*     da[i] = 0; */
-/*     kv_init(supp_b[i]); */
-/*     kv_init(supp_e[i]); */
-/*     kv_init(supp_pa_b[i]); */
-/*     kv_init(supp_pa_e[i]); */
-/*     kv_init(supp_da_b[i]); */
-/*   } */
-/**/
-/*   uint32_t c = 0; */
-/**/
-/*   uint8_t *c_col = (uint8_t *)malloc(pbwt->n_haps * sizeof(uint8_t)); */
-/**/
-/*   column_vec pbwt_cols; */
-/*   kv_init(pbwt_cols); */
-/**/
-/*   kv_init(pbwt->cols); */
-/*   while (bcf_read(fp, hdr, rec) >= 0) { */
-/*     pbwt_col ds_col = {0}; */
-/**/
-/*     pbwt->n_sites++; */
-/*     fprintf(stderr, "reading site = %d\r", c); */
-/**/
-/*     bcf_unpack(rec, BCF_UN_ALL); */
-/*     uint32_t n_c = 0; */
-/*     int32_t *gt_arr = NULL, ngt_arr = 0; */
-/*     int i, j, ngt, nsmpl = bcf_hdr_nsamples(hdr); */
-/*     ngt = bcf_get_genotypes(hdr, rec, &gt_arr, &ngt_arr); */
-/*     int max_ploidy = ngt / nsmpl; */
-/**/
-/*     for (i = 0; i < nsmpl; i++) { */
-/*       int32_t *ptr = gt_arr + i * max_ploidy; */
-/*       for (j = 0; j < max_ploidy; j++) { */
-/*         if (ptr[j] == bcf_int32_vector_end) */
-/*           break; */
-/**/
-/*         if (bcf_gt_is_missing(ptr[j])) */
-/*           exit(-1); */
-/**/
-/*         uint32_t idx = i + i + j; */
-/*         c_col[idx] = bcf_gt_allele(ptr[j]); */
-/*       } */
-/*     } */
-/*     free(gt_arr); */
-/*     pbwt_col col = build_col(c_col, pa, da, pbwt->n_haps); */
-/*     for (size_t r = 0; r < col.p.n; r++) { */
-/*       kv_push(uint32_t, supp_b[c_arr_get(&col.b_pa, r)], c); */
-/*       kv_push(uint32_t, supp_e[c_arr_get(&col.e_pa, r)], c); */
-/*       if (r == 0) { */
-/*         kv_push(uint32_t, supp_pa_b[c_arr_get(&col.b_pa, r)], pbwt->n_haps);
- */
-/*         kv_push(uint32_t, supp_da_b[c_arr_get(&col.b_pa, r)], 0); */
-/*       } else { */
-/*         kv_push(uint32_t, supp_pa_b[c_arr_get(&col.b_pa, r)], */
-/*                 pa[c_arr_get(&col.p, r) - 1]); */
-/*         kv_push(uint32_t, supp_da_b[c_arr_get(&col.b_pa, r)], */
-/*                 da[c_arr_get(&col.p, r)]); */
-/*       } */
-/*       if (r == col.p.n - 1) { */
-/*         kv_push(uint32_t, supp_pa_e[c_arr_get(&col.e_pa, r)], pbwt->n_haps);
- */
-/*       } else { */
-/*         kv_push(uint32_t, supp_pa_e[c_arr_get(&col.e_pa, r)], */
-/*                 pa[c_arr_get(&col.p, r + 1)]); */
-/*       } */
-/*     } */
-/**/
-/*     memcpy(l_pa, pa, pbwt->n_haps * sizeof(uint32_t)); */
-/*     memcpy(l_da, da, pbwt->n_haps * sizeof(uint32_t)); */
-/**/
-/*     KV_PUSH_COL_VEC(pbwt->cols, col); */
-/**/
-/*     pbwt_update(c_col, &pa, &da, pbwt->n_haps); */
-/*     // free_pbwt_col(&col); */
-/*     c++; */
-/*   } */
-/**/
-/*   // pbwt->cols = pbwt_cols; */
-/*   pbwt_col col = build_col(c_col, pa, da, pbwt->n_haps); */
-/*   KV_PUSH_COL_VEC(pbwt->cols, col); */
-/**/
-/*   fprintf(stderr, "Building phi\n"); */
-/*   memcpy(l_pa, pa, pbwt->n_haps * sizeof(uint32_t)); */
-/*   memcpy(l_da, da, pbwt->n_haps * sizeof(uint32_t)); */
-/*   for (size_t r = 0; r < col.p.n; r++) { */
-/*     kv_push(uint32_t, supp_b[c_arr_get(&col.b_pa, r)], c); */
-/*     kv_push(uint32_t, supp_e[c_arr_get(&col.e_pa, r)], c); */
-/*     if (r == 0) { */
-/*       kv_push(uint32_t, supp_pa_b[c_arr_get(&col.b_pa, r)], pbwt->n_haps); */
-/*       kv_push(uint32_t, supp_da_b[c_arr_get(&col.b_pa, r)], 0); */
-/*     } else { */
-/*       kv_push(uint32_t, supp_pa_b[c_arr_get(&col.b_pa, r)], */
-/*               pa[c_arr_get(&col.p, r) - 1]); */
-/*       kv_push(uint32_t, supp_da_b[c_arr_get(&col.b_pa, r)], */
-/*               da[c_arr_get(&col.p, r)]); */
-/*     } */
-/*     if (r == col.p.n - 1) { */
-/*       kv_push(uint32_t, supp_pa_e[c_arr_get(&col.e_pa, r)], pbwt->n_haps); */
-/*     } else { */
-/*       kv_push(uint32_t, supp_pa_e[c_arr_get(&col.e_pa, r)], */
-/*               pa[c_arr_get(&col.p, r + 1)]); */
-/*     } */
-/*   } */
-/**/
-/*   for (size_t i = 0; i < pbwt->n_haps; i++) { */
-/*     if (i == 0) { */
-/*       if (supp_pa_b[l_pa[i]].n == 0 || */
-/*           supp_pa_b[l_pa[i]].a[supp_pa_b[l_pa[i]].n - 1] != pbwt->n_haps) {
- */
-/*         kv_push(uint32_t, supp_pa_b[l_pa[i]], pbwt->n_haps); */
-/*         kv_push(uint32_t, supp_da_b[l_pa[i]], 0); */
-/*       } */
-/*     } else { */
-/*       if (supp_pa_b[l_pa[i]].n == 0 || */
-/*           supp_pa_b[l_pa[i]].a[supp_pa_b[l_pa[i]].n - 1] != l_pa[i - 1]) { */
-/*         kv_push(uint32_t, supp_pa_b[l_pa[i]], l_pa[i - 1]); */
-/*         kv_push(uint32_t, supp_da_b[l_pa[i]], l_da[i]); */
-/*       } */
-/*     } */
-/**/
-/*     if (i == pbwt->n_haps - 1) { */
-/*       if (supp_pa_e[l_pa[i]].n == 0 || */
-/*           supp_pa_e[l_pa[i]].a[supp_pa_b[l_pa[i]].n - 1] != pbwt->n_haps) {
- */
-/*         kv_push(uint32_t, supp_pa_e[l_pa[i]], pbwt->n_haps); */
-/*       } */
-/*     } else { */
-/*       if (supp_pa_e[l_pa[i]].n == 0 || */
-/*           supp_pa_e[l_pa[i]].a[supp_pa_e[l_pa[i]].n - 1] != l_pa[i + 1]) { */
-/*         kv_push(uint32_t, supp_pa_e[l_pa[i]], l_pa[i + 1]); */
-/*       } */
-/*     } */
-/*   } */
-/**/
-/*   build_phi(&pbwt->phi, supp_b, supp_e, supp_pa_b, supp_pa_e, supp_da_b, */
-/*             pbwt->n_haps, pbwt->n_sites + 1); */
-/**/
-/*   for (size_t i = 0; i < pbwt->n_haps; i++) { */
-/*     kv_destroy(supp_b[i]); */
-/*     kv_destroy(supp_e[i]); */
-/*     kv_destroy(supp_pa_b[i]); */
-/*     kv_destroy(supp_pa_e[i]); */
-/*     kv_destroy(supp_da_b[i]); */
-/*   } */
-/*   free(supp_b); */
-/*   free(supp_e); */
-/*   free(supp_da_b); */
-/*   free(supp_pa_b); */
-/*   free(supp_pa_e); */
-/**/
-/*   fprintf(stderr, "\n# sites = %d\n", pbwt->n_sites); */
-/**/
-/*   free(c_col); */
-/*   free(pa); */
-/*   free(da); */
-/*   free(l_pa); */
-/*   free(l_da); */
-/**/
-/*   bcf_destroy(rec); */
-/*   bcf_hdr_destroy(hdr); */
-/*   hts_close(fp); */
-/* } */
-
-void pbwt_build_af(pbwt *pbwt, std::string fref, ref_haplotype_set &H,
-                   variant_map &V, std::string &region, bool common) {
-
+void pbwt_build_af_init(pbwt *pbwt, pbwt_build_state *st, int n_ref_samples) {
   tac.clock();
-  bool keep_mono = false;
   vrb.bullet("building mu-PBWT ");
-  bcf_srs_t *sr = bcf_sr_init();
-  sr->require_index = 1;
-  if (bcf_sr_set_regions(sr, region.c_str(), 0) == -1)
-    vrb.error("Impossible to jump to region [" + region + "] in [" + fref +
-              "]");
-  if (bcf_sr_set_targets(sr, region.c_str(), 0, 0) == -1)
-    vrb.error("Impossible to set target region [" + region + "] in [" + fref +
-              "]");
 
-  /* if (nthreads > 1) */
-  /*   bcf_sr_set_threads(sr, nthreads); */
-
-  if (!(bcf_sr_add_reader(sr, fref.c_str()))) {
-    if (sr->errnum != idx_load_failed)
-      vrb.error("Failed to open file: " + fref + "");
-    else
-      vrb.error("Failed to load index of the file: " + fref + "");
-  }
-
-  uint32_t n_ref_samples = bcf_hdr_nsamples(sr->readers[0].header);
   pbwt->n_haps = n_ref_samples * 2;
   pbwt->n_sites = 0;
 
-  fprintf(stderr, "# haplotypes = %d\n", pbwt->n_haps);
+  st->pa = (uint32_t *)malloc(pbwt->n_haps * sizeof(uint32_t));
+  st->da = (uint32_t *)malloc(pbwt->n_haps * sizeof(uint32_t));
+  st->l_pa = (uint32_t *)malloc(pbwt->n_haps * sizeof(uint32_t));
+  st->l_da = (uint32_t *)malloc(pbwt->n_haps * sizeof(uint32_t));
 
-  uint32_t *pa = (uint32_t *)malloc(pbwt->n_haps * sizeof(uint32_t));
-  uint32_t *da = (uint32_t *)malloc(pbwt->n_haps * sizeof(uint32_t));
-  uint32_t *l_pa = (uint32_t *)malloc(pbwt->n_haps * sizeof(uint32_t));
-  uint32_t *l_da = (uint32_t *)malloc(pbwt->n_haps * sizeof(uint32_t));
+  st->supp_b = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec));
+  st->supp_e = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec));
 
-  // uint32_t *thr = (uint32_t *)malloc(pbwt.n_haps * sizeof(uint32_t));
-  // uint32_t *thr = NULL;
-
-  int_vec *supp_b = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec));
-  int_vec *supp_e = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec));
-
-  int_vec *supp_pa_b = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec));
-  int_vec *supp_da_b = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec));
-  int_vec *supp_pa_e = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec));
+  st->supp_pa_b = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec));
+  st->supp_da_b = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec));
+  st->supp_pa_e = (int_vec *)malloc(pbwt->n_haps * sizeof(int_vec));
 
   for (unsigned int i = 0; i < pbwt->n_haps; i++) {
-    pa[i] = i;
-    da[i] = 0;
-    kv_init(supp_b[i]);
-    kv_init(supp_e[i]);
-    kv_init(supp_pa_b[i]);
-    kv_init(supp_pa_e[i]);
-    kv_init(supp_da_b[i]);
+    st->pa[i] = i;
+    st->da[i] = 0;
+    kv_init(st->supp_b[i]);
+    kv_init(st->supp_e[i]);
+    kv_init(st->supp_pa_b[i]);
+    kv_init(st->supp_pa_e[i]);
+    kv_init(st->supp_da_b[i]);
   }
 
-  uint32_t c = 0;
+  st->c = 0;
 
-  uint8_t *c_col = (uint8_t *)malloc(pbwt->n_haps * sizeof(uint8_t));
-
-  column_vec pbwt_cols;
-  kv_init(pbwt_cols);
+  st->c_col = (uint8_t *)malloc(pbwt->n_haps * sizeof(uint8_t));
 
   kv_init(pbwt->cols);
+}
 
-  unsigned int i_site = 0, i_common = 0, n_ref_unphased = 0;
-  int ngt_ref, *gt_arr_ref = NULL, ngt_arr_ref = 0;
-  bcf1_t *line_ref;
-  float prog_step = 1.0 / H.n_tot_sites;
-  float prog_bar = 0.0;
-  sr->max_unpack = BCF_UN_ALL;
-
-  unsigned int cref = 0, calt = 0;
-  int line_max_ploidy = 0;
+void pbwt_build_af_process_site(pbwt *pbwt, pbwt_build_state *st,
+                                const int *gt_arr_ref, int line_max_ploidy,
+                                const std::vector<int> &ploidy_ref_samples,
+                                int n_ref_samples) {
+  pbwt_col ds_col = {0};
   int idx_ref_hap = 0;
-  bool a = false;
-  int *ptr;
-  float *ptr_f;
+  pbwt->n_sites++;
 
-#ifdef __XSI__
-  c_xcf *c_xcf_p = c_xcf_new();
-  c_xcf_add_readers(c_xcf_p, sr);
-#endif
+  const int *ptr;
+  idx_ref_hap = 0;
+  unsigned int cref = 0, calt = 0;
 
-  int rAC = 0, nAC = 0, *vAC = NULL;
-  int rAN = 0, nAN = 0, *vAN = NULL;
-  int ones = 0;
-  int zeros = 0;
-  auto skip1 = 0;
-  auto skip2 = 0;
+  for (int i = 0; i < n_ref_samples; ++i) {
+    ptr = gt_arr_ref + i * line_max_ploidy;
+    for (int j = 0; j < ploidy_ref_samples[i]; j++) {
 
-  std::vector<int> ploidy_ref_samples;
-
-  while (bcf_sr_next_line(sr)) {
-    if (bcf_sr_get_line(sr, 0)->n_allele != 2) {
-      skip1++;
-      continue; // always ref
+      ++idx_ref_hap;
+      uint32_t idx = i + i + j;
+      st->c_col[idx] = bcf_gt_allele(ptr[j]);
     }
-    line_ref = bcf_sr_get_line(sr, 0);
-
-    rAC = bcf_get_info_int32(sr->readers[0].header, line_ref, "AC", &vAC, &nAC);
-    rAN = bcf_get_info_int32(sr->readers[0].header, line_ref, "AN", &vAN, &nAN);
-    if ((nAC != 1) || (nAN != 1))
-      vrb.error(
-          "VCF for reference panel needs AC/AN INFO fields to be present");
-    calt = vAC[0];
-    cref = (vAN[0] - vAC[0]);
-
-    if (std::min(calt, cref) == 0 && !keep_mono) {
-      skip2++;
-      continue;
-    }
-
-    if (common && !H.flag_common[i_site]) {
-      i_site++;
-      prog_bar += prog_step;
-      vrb.progress(" * mu-PBWT building  ", prog_bar);
-      /* l_k1++; */
-      continue;
-    }
-
-    /* else { */
-    /* l_k2++; */
-    /* } */
-#ifdef __XSI__
-    ngt_ref = c_xcf_get_genotypes(c_xcf_p, 0, sr->readers[0].header, line_ref,
-                                  &gt_arr_ref, &ngt_arr_ref);
-#else
-    ngt_ref = bcf_get_genotypes(sr->readers[0].header, line_ref, &gt_arr_ref,
-                                &ngt_arr_ref);
-#endif
-
-    pbwt_col ds_col = {0};
-    idx_ref_hap = 0;
-    pbwt->n_sites++;
-
-    if (i_site == 0 || c == 0) {
-      int max_ploidy_ref = 0;
-      int n_ref_haploid = 0;
-
-      if (gt_arr_ref == nullptr || ngt_ref == 0)
-        vrb.error("Error setting ploidy while reading the first record.");
-
-      max_ploidy_ref = ngt_ref / n_ref_samples;
-      if (max_ploidy_ref < 1 || max_ploidy_ref > 2 ||
-          ngt_ref % n_ref_samples != 0)
-        vrb.error("Max ploidy of the reference panel cannot be set to neither "
-                  "1 or 2.");
-
-      ploidy_ref_samples = std::vector<int>(n_ref_samples, 2);
-
-      if (max_ploidy_ref == 1) {
-        n_ref_haploid = n_ref_samples;
-        for (int i = 0; i < n_ref_samples; ++i)
-          ploidy_ref_samples[i] = 1;
-      } else {
-        for (int i = 0; i < n_ref_samples; ++i) {
-          if (gt_arr_ref[max_ploidy_ref * i + 1] == bcf_int32_vector_end) {
-            ploidy_ref_samples[i] = 1;
-            ++n_ref_haploid;
-          }
-        }
-      }
-    }
-    line_max_ploidy = ngt_ref / n_ref_samples;
-    idx_ref_hap = 0, cref = 0, calt = 0;
-
-    for (int i = 0; i < n_ref_samples; ++i) {
-      ptr = gt_arr_ref + i * line_max_ploidy;
-      for (int j = 0; j < ploidy_ref_samples[i]; j++) {
-
-        ++idx_ref_hap;
-        uint32_t idx = i + i + j;
-        c_col[idx] = bcf_gt_allele(ptr[j]);
-      }
-    }
-
-    pbwt_col col = build_col(c_col, pa, da, pbwt->n_haps);
-    for (size_t r = 0; r < col.p.n; r++) {
-      kv_push(uint32_t, supp_b[c_arr_get(&col.b_pa, r)], c);
-      kv_push(uint32_t, supp_e[c_arr_get(&col.e_pa, r)], c);
-      if (r == 0) {
-        kv_push(uint32_t, supp_pa_b[c_arr_get(&col.b_pa, r)], pbwt->n_haps);
-        kv_push(uint32_t, supp_da_b[c_arr_get(&col.b_pa, r)], 0);
-      } else {
-        kv_push(uint32_t, supp_pa_b[c_arr_get(&col.b_pa, r)],
-                pa[c_arr_get(&col.p, r) - 1]);
-        kv_push(uint32_t, supp_da_b[c_arr_get(&col.b_pa, r)],
-                da[c_arr_get(&col.p, r)]);
-      }
-      if (r == col.p.n - 1) {
-        kv_push(uint32_t, supp_pa_e[c_arr_get(&col.e_pa, r)], pbwt->n_haps);
-      } else {
-        kv_push(uint32_t, supp_pa_e[c_arr_get(&col.e_pa, r)],
-                pa[c_arr_get(&col.p, r + 1)]);
-      }
-    }
-
-    memcpy(l_pa, pa, pbwt->n_haps * sizeof(uint32_t));
-    memcpy(l_da, da, pbwt->n_haps * sizeof(uint32_t));
-
-    KV_PUSH_COL_VEC(pbwt->cols, col);
-
-    pbwt_update(c_col, &pa, &da, pbwt->n_haps);
-    // free_pbwt_col(&col);
-    c++;
-    /* if ((cref != V.vec_pos[i_site]->cref) || (calt !=
-     * V.vec_pos[i_site]->calt)) */
-    /*   vrb.error("AC/AN INFO fields in VCF are inconsistent with GT field, "
-     */
-    /*             "update the values in the VCF"); */
-    i_site++;
-    prog_bar += prog_step;
-    vrb.progress(" * mu-PBWT building  ", prog_bar);
   }
 
-  // pbwt->cols = pbwt_cols;
-  pbwt_col col = build_col(c_col, pa, da, pbwt->n_haps);
-  KV_PUSH_COL_VEC(pbwt->cols, col);
-
-  fprintf(stderr, "Building phi\n");
-  memcpy(l_pa, pa, pbwt->n_haps * sizeof(uint32_t));
-  memcpy(l_da, da, pbwt->n_haps * sizeof(uint32_t));
+  pbwt_col col = build_col(st->c_col, st->pa, st->da, pbwt->n_haps);
   for (size_t r = 0; r < col.p.n; r++) {
-    kv_push(uint32_t, supp_b[c_arr_get(&col.b_pa, r)], c);
-    kv_push(uint32_t, supp_e[c_arr_get(&col.e_pa, r)], c);
+    kv_push(uint32_t, st->supp_b[c_arr_get(&col.b_pa, r)], st->c);
+    kv_push(uint32_t, st->supp_e[c_arr_get(&col.e_pa, r)], st->c);
     if (r == 0) {
-      kv_push(uint32_t, supp_pa_b[c_arr_get(&col.b_pa, r)], pbwt->n_haps);
-      kv_push(uint32_t, supp_da_b[c_arr_get(&col.b_pa, r)], 0);
+      kv_push(uint32_t, st->supp_pa_b[c_arr_get(&col.b_pa, r)], pbwt->n_haps);
+      kv_push(uint32_t, st->supp_da_b[c_arr_get(&col.b_pa, r)], 0);
     } else {
-      kv_push(uint32_t, supp_pa_b[c_arr_get(&col.b_pa, r)],
-              pa[c_arr_get(&col.p, r) - 1]);
-      kv_push(uint32_t, supp_da_b[c_arr_get(&col.b_pa, r)],
-              da[c_arr_get(&col.p, r)]);
+      kv_push(uint32_t, st->supp_pa_b[c_arr_get(&col.b_pa, r)],
+              st->pa[c_arr_get(&col.p, r) - 1]);
+      kv_push(uint32_t, st->supp_da_b[c_arr_get(&col.b_pa, r)],
+              st->da[c_arr_get(&col.p, r)]);
     }
     if (r == col.p.n - 1) {
-      kv_push(uint32_t, supp_pa_e[c_arr_get(&col.e_pa, r)], pbwt->n_haps);
+      kv_push(uint32_t, st->supp_pa_e[c_arr_get(&col.e_pa, r)], pbwt->n_haps);
     } else {
-      kv_push(uint32_t, supp_pa_e[c_arr_get(&col.e_pa, r)],
-              pa[c_arr_get(&col.p, r + 1)]);
+      kv_push(uint32_t, st->supp_pa_e[c_arr_get(&col.e_pa, r)],
+              st->pa[c_arr_get(&col.p, r + 1)]);
+    }
+  }
+
+  memcpy(st->l_pa, st->pa, pbwt->n_haps * sizeof(uint32_t));
+  memcpy(st->l_da, st->da, pbwt->n_haps * sizeof(uint32_t));
+
+  KV_PUSH_COL_VEC(pbwt->cols, col);
+
+  pbwt_update(st->c_col, &st->pa, &st->da, pbwt->n_haps);
+  st->c++;
+}
+
+void pbwt_build_af_finalize(pbwt *pbwt, pbwt_build_state *st) {
+  pbwt_col col = build_col(st->c_col, st->pa, st->da, pbwt->n_haps);
+  KV_PUSH_COL_VEC(pbwt->cols, col);
+
+  memcpy(st->l_pa, st->pa, pbwt->n_haps * sizeof(uint32_t));
+  memcpy(st->l_da, st->da, pbwt->n_haps * sizeof(uint32_t));
+  for (size_t r = 0; r < col.p.n; r++) {
+    kv_push(uint32_t, st->supp_b[c_arr_get(&col.b_pa, r)], st->c);
+    kv_push(uint32_t, st->supp_e[c_arr_get(&col.e_pa, r)], st->c);
+    if (r == 0) {
+      kv_push(uint32_t, st->supp_pa_b[c_arr_get(&col.b_pa, r)], pbwt->n_haps);
+      kv_push(uint32_t, st->supp_da_b[c_arr_get(&col.b_pa, r)], 0);
+    } else {
+      kv_push(uint32_t, st->supp_pa_b[c_arr_get(&col.b_pa, r)],
+              st->pa[c_arr_get(&col.p, r) - 1]);
+      kv_push(uint32_t, st->supp_da_b[c_arr_get(&col.b_pa, r)],
+              st->da[c_arr_get(&col.p, r)]);
+    }
+    if (r == col.p.n - 1) {
+      kv_push(uint32_t, st->supp_pa_e[c_arr_get(&col.e_pa, r)], pbwt->n_haps);
+    } else {
+      kv_push(uint32_t, st->supp_pa_e[c_arr_get(&col.e_pa, r)],
+              st->pa[c_arr_get(&col.p, r + 1)]);
     }
   }
 
   for (size_t i = 0; i < pbwt->n_haps; i++) {
     if (i == 0) {
-      if (supp_pa_b[l_pa[i]].n == 0 ||
-          supp_pa_b[l_pa[i]].a[supp_pa_b[l_pa[i]].n - 1] != pbwt->n_haps) {
-        kv_push(uint32_t, supp_pa_b[l_pa[i]], pbwt->n_haps);
-        kv_push(uint32_t, supp_da_b[l_pa[i]], 0);
+      if (st->supp_pa_b[st->l_pa[i]].n == 0 ||
+          st->supp_pa_b[st->l_pa[i]].a[st->supp_pa_b[st->l_pa[i]].n - 1] !=
+              pbwt->n_haps) {
+        kv_push(uint32_t, st->supp_pa_b[st->l_pa[i]], pbwt->n_haps);
+        kv_push(uint32_t, st->supp_da_b[st->l_pa[i]], 0);
       }
     } else {
-      if (supp_pa_b[l_pa[i]].n == 0 ||
-          supp_pa_b[l_pa[i]].a[supp_pa_b[l_pa[i]].n - 1] != l_pa[i - 1]) {
-        kv_push(uint32_t, supp_pa_b[l_pa[i]], l_pa[i - 1]);
-        kv_push(uint32_t, supp_da_b[l_pa[i]], l_da[i]);
+      if (st->supp_pa_b[st->l_pa[i]].n == 0 ||
+          st->supp_pa_b[st->l_pa[i]].a[st->supp_pa_b[st->l_pa[i]].n - 1] !=
+              st->l_pa[i - 1]) {
+        kv_push(uint32_t, st->supp_pa_b[st->l_pa[i]], st->l_pa[i - 1]);
+        kv_push(uint32_t, st->supp_da_b[st->l_pa[i]], st->l_da[i]);
       }
     }
 
     if (i == pbwt->n_haps - 1) {
-      if (supp_pa_e[l_pa[i]].n == 0 ||
-          supp_pa_e[l_pa[i]].a[supp_pa_b[l_pa[i]].n - 1] != pbwt->n_haps) {
-        kv_push(uint32_t, supp_pa_e[l_pa[i]], pbwt->n_haps);
+      if (st->supp_pa_e[st->l_pa[i]].n == 0 ||
+          st->supp_pa_e[st->l_pa[i]].a[st->supp_pa_b[st->l_pa[i]].n - 1] !=
+              pbwt->n_haps) {
+        kv_push(uint32_t, st->supp_pa_e[st->l_pa[i]], pbwt->n_haps);
       }
     } else {
-      if (supp_pa_e[l_pa[i]].n == 0 ||
-          supp_pa_e[l_pa[i]].a[supp_pa_e[l_pa[i]].n - 1] != l_pa[i + 1]) {
-        kv_push(uint32_t, supp_pa_e[l_pa[i]], l_pa[i + 1]);
+      if (st->supp_pa_e[st->l_pa[i]].n == 0 ||
+          st->supp_pa_e[st->l_pa[i]].a[st->supp_pa_e[st->l_pa[i]].n - 1] !=
+              st->l_pa[i + 1]) {
+        kv_push(uint32_t, st->supp_pa_e[st->l_pa[i]], st->l_pa[i + 1]);
       }
     }
   }
 
-  build_phi(&pbwt->phid, supp_b, supp_e, supp_pa_b, supp_pa_e, supp_da_b,
-            pbwt->n_haps, pbwt->n_sites + 1);
+  build_phi(&pbwt->phid, st->supp_b, st->supp_e, st->supp_pa_b, st->supp_pa_e,
+            st->supp_da_b, pbwt->n_haps, pbwt->n_sites + 1);
 
   for (size_t i = 0; i < pbwt->n_haps; i++) {
-    kv_destroy(supp_b[i]);
-    kv_destroy(supp_e[i]);
-    kv_destroy(supp_pa_b[i]);
-    kv_destroy(supp_pa_e[i]);
-    kv_destroy(supp_da_b[i]);
+    kv_destroy(st->supp_b[i]);
+    kv_destroy(st->supp_e[i]);
+    kv_destroy(st->supp_pa_b[i]);
+    kv_destroy(st->supp_pa_e[i]);
+    kv_destroy(st->supp_da_b[i]);
   }
-  free(supp_b);
-  free(supp_e);
-  free(supp_da_b);
-  free(supp_pa_b);
-  free(supp_pa_e);
+  free(st->supp_b);
+  free(st->supp_e);
+  free(st->supp_da_b);
+  free(st->supp_pa_b);
+  free(st->supp_pa_e);
 
-  fprintf(stderr, "\n# sites = %d\n", pbwt->n_sites);
+  free(st->c_col);
+  free(st->pa);
+  free(st->da);
+  free(st->l_pa);
+  free(st->l_da);
 
-  free(c_col);
-  free(pa);
-  free(da);
-  free(l_pa);
-  free(l_da);
-
-  /* bcf_destroy(rec); */
-  /* bcf_hdr_destroy(hdr); */
-  /* hts_close(fp); */
-
-#ifdef __XSI__
-  c_xcf_delete(c_xcf_p);
-#endif
-  free(gt_arr_ref);
   vrb.bullet("mu-PBWT building (" + stb.str(tac.rel_time() * 1.0 / 1000, 2) +
              "s)");
 }
@@ -673,10 +340,6 @@ int_vec get_haps_ms(const pbwt *pbwt, uint32_t p, uint32_t l, uint32_t c) {
   bool u = true;
   uint32_t u_p = 0;
 
-  /* map_res d_m = pbwt_for(pbwt, c_i, c_r, c); */
-  /* d_m.i += 1; */
-  /* map_res u_m = pbwt_for(pbwt, c_i, c_r, c); */
-
   while (d) {
     d_p = phi_inv_f(&pbwt->phid, t_p, c + 1);
     DBG("testing down %d", d_p);
@@ -706,7 +369,6 @@ int_vec get_haps_ms(const pbwt *pbwt, uint32_t p, uint32_t l, uint32_t c) {
     }
   }
 
-  // sort_int_vec(&res);
   return res;
 }
 uint32_t get_l_u(const pbwt *pbwt, uint32_t p, uint32_t n, uint32_t c) {

@@ -45,8 +45,10 @@ void caller::declare_options() {
       "(Expert setting) Rare variant threshold.")(
       "keep-monomorphic-ref-sites",
       "(Expert setting) Keeps monomorphic markers in the reference panel "
-      "(removed by default)")("mupbwt-common",
-                              "use mupbwt with only common variants");
+      "(removed by default)")(
+      "mupbwt", "build the mu-PBWT index (.ser) instead of the stock GLIMPSE "
+                "compressed PBWT. Without this flag, only the stock PBWT is "
+                "built; with it, only mu-PBWT is built.");
 
   bpo::options_description opt_output("Output parameters");
   opt_output.add_options()("output,O", bpo::value<std::string>(),
@@ -111,7 +113,7 @@ void caller::check_options() {
     vrb.error("Number of threads is a strictly positive number.");
 
   float s_maf = options["sparse-maf"].as<float>();
-  if (s_maf >= 0.5 || s_maf < 0)
+  if (s_maf >= 1.5 || s_maf < 0)
     vrb.error("The sparse MAF parameter should not be set too high or low. "
               "Ideally within the range [1%-0.001%] MAF: 0.1% MAF is the "
               "recommended setting]");
@@ -143,11 +145,7 @@ void caller::verbose_files() {
 
 void caller::verbose_options() {
   std::array<std::string, 2> no_yes = {"NO", "YES"};
-  if (no_yes[options.count("mupbwt-common")] == "YES") {
-    mu_common = true;
-  } else {
-    mu_common = false;
-  }
+  build_mupbwt = options.count("mupbwt") > 0;
   vrb.title("GLIMPSE_split_reference parameters:");
   vrb.bullet("Sparse MAF           : [" +
              stb.str(options["sparse-maf"].as<float>() * 100.0f) + "%]");
@@ -157,6 +155,9 @@ void caller::verbose_options() {
              "]");
   vrb.bullet("#Threads             : [" +
              stb.str(options["threads"].as<int>()) + "]");
-  vrb.bullet("Mupbwt common        : [" +
-             no_yes[options.count("mupbwt-common")] + "]");
+  vrb.bullet("Mode                 : [" +
+             std::string(build_mupbwt
+                            ? "mu-PBWT only, stock GLIMPSE PBWT not built"
+                            : "stock GLIMPSE PBWT only, mu-PBWT not built") +
+             "]");
 }
