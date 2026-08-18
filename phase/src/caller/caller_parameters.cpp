@@ -88,12 +88,18 @@ void caller::declare_options() {
       "mupbwt minimum threshold over tot for smems")(
       "mupbwt-medium-thr", bpo::value<float>()->default_value(100000.0),
       "mupbwt medium threshold over tot for smems")(
-      "mupbwt-max", bpo::value<int>()->default_value(4),
+      "mupbwt-max", bpo::value<int>()->default_value(16),
       "mupbwt max multiplier size smems")(
-      "mupbwt-chunk", bpo::value<int>()->default_value(70),
+      "mupbwt-chunk", bpo::value<int>()->default_value(50),
       "mupbwt chunk size (bigger -> more memory)")(
       "mupbwt-depth", bpo::value<int>()->default_value(10),
-      "mupbwt depth size (bigger -> more memory)")
+      "mupbwt depth size (bigger -> more memory)")(
+      "mupbwt-persistence", bpo::value<bool>()->default_value(true),
+      "use cross-iteration mu-PBWT match persistence")(
+      "mupbwt-persistence-decay", bpo::value<float>()->default_value(0.9f),
+      "mupbwt persistence: per-iteration decay applied to carried-over match scores")(
+      "mupbwt-persistence-floor", bpo::value<float>()->default_value(0.02f),
+      "mupbwt persistence: minimum decayed score below which a carried-over match is dropped")
   ;
 
   bpo::options_description opt_algo("Model parameters");
@@ -595,6 +601,12 @@ void caller::verbose_options() {
                stb.str(options["mupbwt-chunk"].as<int>()) + "]");
     vrb.bullet("mupbwt-depth         : [" +
                stb.str(options["mupbwt-depth"].as<int>()) + "]");
+    vrb.bullet("mupbwt-persistence   : [" +
+               no_yes[options["mupbwt-persistence"].as<bool>()] + "]");
+    vrb.bullet("mupbwt-persistence-decay: [" +
+               stb.str(options["mupbwt-persistence-decay"].as<float>()) + "]");
+    vrb.bullet("mupbwt-persistence-floor: [" +
+               stb.str(options["mupbwt-persistence-floor"].as<float>()) + "]");
   }
   if (no_yes[options.count("mupbwt")] == "YES") {
     use_mu = true;

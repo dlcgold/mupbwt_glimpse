@@ -25,6 +25,7 @@
 
 #include <caller/caller_header.h>
 #include <omp.h>
+
 void *phase_callback(void *ptr) {
   caller *S = static_cast<caller *>(ptr);
   int id_worker, id_job;
@@ -154,14 +155,14 @@ void caller::phase_loop() {
     loffset = a;
   }
   std::sort(sites.begin(), sites.end());
-// double next_target = V[common2tot[0]]->cm + pbwt_modulo; 
-//
-// for (int l = 0; l < H.n_common; l++) {
-//     if (V[H.common2tot[l]]->cm >= next_target) {
-//         sites.push_back(l);
-//         next_target = V[H.common2tot[l]]->cm + pbwt_modulo;
-//     }
-// }
+  // double next_target = V[common2tot[0]]->cm + pbwt_modulo;
+  //
+  // for (int l = 0; l < H.n_common; l++) {
+  //     if (V[H.common2tot[l]]->cm >= next_target) {
+  //         sites.push_back(l);
+  //         next_target = V[H.common2tot[l]]->cm + pbwt_modulo;
+  //     }
+  // }
   int n_q = 0;
   vrb.bullet("PBWT sites " + stb.str(sites.size()));
   vrb.bullet("# target " + stb.str(G.vecG.size() * 2));
@@ -176,13 +177,15 @@ void caller::phase_loop() {
       tac.clock();
       uint32_t n_sites = mupbwt.n_sites;
 
-      H.matchHapsFromMuPBWT(mupbwt, V, false, sites, G, n_sites,
-                            options["threads"].as<int>(), H, use_mu_common,
-                            options["mupbwt-min-thr"].as<float>(),
-                            options["mupbwt-medium-thr"].as<float>(),
-                            options["mupbwt-max"].as<int>(),
-                            options["mupbwt-chunk"].as<int>(),
-                            options["mupbwt-depth"].as<int>());
+      H.matchHapsFromMuPBWT(
+          mupbwt, V, false, sites, G, n_sites, options["threads"].as<int>(), H,
+          use_mu_common, options["mupbwt-min-thr"].as<float>(),
+          options["mupbwt-medium-thr"].as<float>(),
+          options["mupbwt-max"].as<int>(), options["mupbwt-chunk"].as<int>(),
+          options["mupbwt-depth"].as<int>(),
+          options["mupbwt-persistence"].as<bool>(),
+          options["mupbwt-persistence-decay"].as<float>(),
+          options["mupbwt-persistence-floor"].as<float>());
       n_q = G.vecG.size() * 2;
     } else {
       H.matchHapsFromCompressedPBWTSmall(V, false);
@@ -204,7 +207,6 @@ void caller::phase_loop() {
       vrb.bullet("after extraction pbwt_states: total haplotypes at depth " +
                  std::to_string(d) + " = " + std::to_string(total_haplos));
     }
-
     current_stage = STAGE_RESTRICT;
     phase_iteration();
     current_stage = STAGE_BURN;
@@ -226,13 +228,15 @@ void caller::phase_loop() {
       tac.clock();
       uint32_t n_sites = mupbwt.n_sites;
 
-      H.matchHapsFromMuPBWT(mupbwt, V, true, sites, G, n_sites,
-                            options["threads"].as<int>(), H, use_mu_common,
-                            options["mupbwt-min-thr"].as<float>(),
-                            options["mupbwt-medium-thr"].as<float>(),
-                            options["mupbwt-max"].as<int>(),
-                            options["mupbwt-chunk"].as<int>(),
-                            options["mupbwt-depth"].as<int>());
+      H.matchHapsFromMuPBWT(
+          mupbwt, V, true, sites, G, n_sites, options["threads"].as<int>(), H,
+          use_mu_common, options["mupbwt-min-thr"].as<float>(),
+          options["mupbwt-medium-thr"].as<float>(),
+          options["mupbwt-max"].as<int>(), options["mupbwt-chunk"].as<int>(),
+          options["mupbwt-depth"].as<int>(),
+          options["mupbwt-persistence"].as<bool>(),
+          options["mupbwt-persistence-decay"].as<float>(),
+          options["mupbwt-persistence-floor"].as<float>());
       n_q = G.vecG.size() * 2;
     } else {
       H.matchHapsFromCompressedPBWTSmall(V, true);
@@ -260,245 +264,3 @@ void caller::phase_loop() {
   for (int i = 0; i < G.vecG.size(); i++)
     G.vecG[i]->sortAndNormAndInferGenotype();
 }
-// void caller::phase_loop() {
-//   if (use_mu) {
-//     const char *env = std::getenv("OMP_NUM_THREADS");
-//     if (env) {
-//       omp_set_num_threads(std::atoi(env));
-//     } else {
-//       omp_set_num_threads(options["threads"].as<int>());
-//     }
-//   }
-//   // First Iteration
-//   current_stage = STAGE_INIT;
-//   vrb.title("Initializing iteration");
-//
-//   H.initRareTar(G, V);
-//   H.performSelection_RARE_INIT_GL(V); // not parallel
-//
-//   phase_iteration();
-//
-//   H.init_states.clear();
-//   H.init_states.shrink_to_fit();
-//
-//   // Burn-in 0
-//   current_stage = STAGE_BURN;
-//   int nBurnin = options["burnin"].as<int>();
-//   // nBurnin = 1;
-//   //    std::vector<std::string> tmp;
-//   //    rlpbwt_int mu(options["reference_panel"].as<std::string>(), tmp, H,
-//   V,
-//   //                  V.input_gregion, 1);
-//   // mupbwt = mu;
-//   std::vector<int> sites;
-//
-//   vrb.bullet("mu-PBWT: " + stb.str(mupbwt.n_haps) + " haplotypes and " +
-//              stb.str(mupbwt.n_sites) + " variants");
-//   for (auto a : H.pbwt_grp) {
-//     sites.push_back(H.common2tot[a]);
-//     // std::cout << H.common2tot[a] << "\t";
-//   }
-//   //    for (int i = 0; i < mupbwt.height; i++) {
-//   //        std::cerr << mupbwt.get_row(i) << "\n";
-//   //    }
-//
-//   int n_q = 0;
-//   vrb.bullet("PBWT sites " + stb.str(sites.size()));
-//
-//   vrb.bullet("# target " + stb.str(G.vecG.size() * 2));
-//   for (int iter = 0; iter < nBurnin; iter++) {
-//     vrb.title("Burn-in iteration [" + stb.str(iter + 1) + "/" +
-//               stb.str(nBurnin) + "]");
-//
-//     H.updateHaplotypes(G);
-//     H.transposeRareTar();
-//     if (use_mu) {
-//       tac.clock();
-//       uint32_t n = G.vecG.size() * 2;
-//       uint32_t n_sites = mupbwt.n_sites;
-//
-//       uint8_t *q_p = nullptr;
-//       size_t mat_size = (size_t)n * n_sites * sizeof(uint8_t);
-//
-//       if (posix_memalign((void **)&q_p, 64, mat_size) != 0) {
-//         fprintf(stderr, "Memory allocation error for q_p\n");
-//         exit(-1);
-//       }
-//       memset(q_p, 0, mat_size);
-//
-//       uint32_t q_idx = 0;
-//
-//       for (auto &i : G.vecG) {
-//         uint32_t site_c = 0;
-//         uint32_t pbwt_site = 0;
-//
-//         for (auto &&j : i->H0) {
-//           if (!use_mu_common || H.flag_common[site_c]) {
-//             if (j) {
-//               q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
-//             }
-//             pbwt_site++;
-//           }
-//           site_c++;
-//         }
-//         q_idx++;
-//
-//         site_c = 0;
-//         pbwt_site = 0;
-//
-//         for (auto &&j : i->H1) {
-//           if (!use_mu_common || H.flag_common[site_c]) {
-//             if (j) {
-//               q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
-//             }
-//             pbwt_site++;
-//           }
-//           site_c++;
-//         }
-//         q_idx++;
-//       }
-//       vrb.bullet("Mu-PBWT loaded queries (" +
-//                  stb.str(tac.rel_time() * 1.0 / 1000, 2) + "s)");
-//       // if (!use_smems && !use_mpsc) {
-//       //   H.matchHapsFromMuPBWT(mupbwt, V, false, sites, queries);
-//       // } else if (use_smems && !use_mpsc) {
-//       //   H.matchHapsFromMuPBWTSMEMS(mupbwt, V, false, sites, queries);
-//       // } else if (!use_smems && use_mpsc) {
-//       //   H.matchHapsFromMuPBWTSMEMS(mupbwt, V, false, sites, queries);
-//       // }
-//       H.matchHapsFromMuPBWT(mupbwt, V, false, sites, q_p, n, n_sites,
-//                             options["threads"].as<int>());
-//       n_q = n;
-//       free(q_p);
-//     } else {
-//       H.matchHapsFromCompressedPBWTSmall(V, false);
-//     }
-//     // for (int i = 0; i < H.pbwt_states[0].size(); i++) {
-//     //   vrb.bullet("after extraction pbwt_states: " + stb.str(n_q) +
-//     //              " queries, " + stb.str(i) + " depth, " +
-//     //              stb.str(H.pbwt_states[0][i].size()) + " haplotypes");
-//     // }
-//     // vrb.bullet("n_q = " + std::to_string(n_q));
-//     // vrb.bullet("pbwt_states.size() = " +
-//     // std::to_string(H.pbwt_states.size()));
-//     size_t max_depth = 0;
-//     for (size_t q = 0; q < n_q / 2; q++) {
-//       max_depth = std::max(max_depth, H.pbwt_states[q].size());
-//     }
-//
-//     for (size_t d = 0; d < max_depth; d++) {
-//       size_t total_haplos = 0;
-//
-//       for (size_t q = 0; q < n_q / 2; q++) {
-//         if (H.pbwt_states[q].size() > d) {
-//           total_haplos += H.pbwt_states[q][d].size();
-//         }
-//       }
-//
-//       vrb.bullet("after extraction pbwt_states: total haplotypes at depth " +
-//                  std::to_string(d) + " = " + std::to_string(total_haplos));
-//     }
-//     current_stage = STAGE_RESTRICT;
-//     phase_iteration();
-//     current_stage = STAGE_BURN;
-//     phase_iteration();
-//   }
-//   vrb.bullet("having " + stb.str(sites.size()) + " sites");
-//   // Main
-//   current_stage = STAGE_MAIN;
-//   int nMain = options["main"].as<int>();
-//   // nMain = 0;
-//   for (int iter = 0; iter < nMain; iter++) {
-//     vrb.title("Main iteration [" + stb.str(iter + 1) + "/" + stb.str(nMain) +
-//               "]");
-//     H.updateHaplotypes(G);
-//     H.transposeRareTar();
-//
-//     if (use_mu) {
-//       tac.clock();
-//       uint32_t n = G.vecG.size() * 2;
-//       uint32_t n_sites = mupbwt.n_sites;
-//
-//       uint8_t *q_p = nullptr;
-//       size_t mat_size = (size_t)n * n_sites * sizeof(uint8_t);
-//
-//       if (posix_memalign((void **)&q_p, 64, mat_size) != 0) {
-//         fprintf(stderr, "Memory allocation error for q_p\n");
-//         exit(-1);
-//       }
-//       memset(q_p, 0, mat_size);
-//
-//       uint32_t q_idx = 0;
-//
-//       for (auto &i : G.vecG) {
-//         uint32_t site_c = 0;
-//         uint32_t pbwt_site = 0;
-//
-//         for (auto &&j : i->H0) {
-//           if (!use_mu_common || H.flag_common[site_c]) {
-//             if (j) {
-//               q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
-//             }
-//             pbwt_site++;
-//           }
-//           site_c++;
-//         }
-//         q_idx++;
-//
-//         site_c = 0;
-//         pbwt_site = 0;
-//
-//         for (auto &&j : i->H1) {
-//           if (!use_mu_common || H.flag_common[site_c]) {
-//             if (j) {
-//               q_p[(size_t)q_idx * n_sites + pbwt_site] = 1;
-//             }
-//             pbwt_site++;
-//           }
-//           site_c++;
-//         }
-//         q_idx++;
-//       }
-//       vrb.bullet("Mu-PBWT loaded queries (" +
-//                  stb.str(tac.rel_time() * 1.0 / 1000, 2) + "s)");
-//       H.matchHapsFromMuPBWT(mupbwt, V, true, sites, q_p, n, n_sites,
-//                             options["threads"].as<int>());
-//       // if (!use_smems && !use_mpsc) {
-//       //   H.matchHapsFromMuPBWT(mupbwt, V, false, sites, queries);
-//       // } else if (use_smems && !use_mpsc) {
-//       //   H.matchHapsFromMuPBWTSMEMS(mupbwt, V, false, sites, queries);
-//       // } else if (!use_smems && use_mpsc) {
-//       //   H.matchHapsFromMuPBWTMPSC(mupbwt, V, false, sites, queries);
-//       // }
-//       n_q = n;
-//       free(q_p);
-//     } else {
-//       H.matchHapsFromCompressedPBWTSmall(V, true);
-//     }
-//     size_t max_depth = 0;
-//     for (size_t q = 0; q < n_q / 2; q++) {
-//       max_depth = std::max(max_depth, H.pbwt_states[q].size());
-//     }
-//
-//     for (size_t d = 0; d < max_depth; d++) {
-//       size_t total_haplos = 0;
-//
-//       for (size_t q = 0; q < n_q / 2; q++) {
-//         if (H.pbwt_states[q].size() > d) {
-//           total_haplos += H.pbwt_states[q][d].size();
-//         }
-//       }
-//
-//       vrb.bullet("after extraction pbwt_states: total haplotypes at depth " +
-//                  std::to_string(d) + " = " + std::to_string(total_haplos));
-//     }
-//     phase_iteration();
-//   }
-//
-//   // Finalization
-//   // vrb.title("Finalization");
-//   for (int i = 0; i < G.vecG.size(); i++)
-//     G.vecG[i]->sortAndNormAndInferGenotype();
-//
-//   // vrb.bullet("done");
-// }

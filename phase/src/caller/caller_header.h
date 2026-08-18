@@ -28,7 +28,6 @@
 
 #include <utils/otools.h>
 
-// #include "mu-pbwt/rlpbwt_int.h"
 #include "mupbwt/pbwt.h"
 
 #include <containers/genotype_set.h>

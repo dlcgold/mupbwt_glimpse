@@ -99,8 +99,10 @@ void caller::read_files_and_initialise() {
       ia >> H;
       ia >> V;
 
-      if (H.Ypacked.size() == 0)
-        vrb.error("Problem reading binary file format [v2.0.0]");
+      if (H.Ypacked.size() == 0 && !use_mu)
+        vrb.error("Problem reading binary file format [v2.0.0] (reference "
+                  "panel has no stock PBWT — if it was built with "
+                  "--mupbwt-opt, you must pass --mupbwt to phase)");
 
       vrb.bullet("Binary reference panel parsing [done] (" +
                  stb.str(tac.rel_time() * 1.0 / 1000, 2) + "s)");
@@ -170,28 +172,30 @@ void caller::read_files_and_initialise() {
 
   // step5 PBWT
   H.allocatePBWT(options["pbwt-depth"].as<int>(),
-                 options["pbwt-modulo-cm"].as<float>(), V, G, kinit, kpbwt);
+                 options["pbwt-modulo-cm"].as<float>(), V, G, kinit, kpbwt,
+                 use_mu);
 
   tac.clock();
-  std::ifstream load;
-  size_t lastindex = reference_filename.find_last_of(".");
-  std::string load_file = reference_filename.substr(0, lastindex) + ".ser";
-  // load.open(load_file.c_str());
-  // mupbwt.load(load);
-  // load.close();
-
   memset(&mupbwt, 0, sizeof(mupbwt));
 
-  FILE *fpb = fopen(load_file.c_str(), "rb");
-  if (!fpb) {
-    exit(-1);
-  }
-  setvbuf(fpb, NULL, _IOFBF, 1024 * 1024 * 4);
+  if (use_mu) {
+    size_t lastindex = reference_filename.find_last_of(".");
+    std::string load_file = reference_filename.substr(0, lastindex) + ".ser";
 
-  pbwt_deserialize(fpb, &mupbwt);
-  fclose(fpb);
-  vrb.bullet("mu-PBWT loading (" + stb.str(tac.rel_time() * 1.0 / 1000, 2) +
-             "s)");
+    FILE *fpb = fopen(load_file.c_str(), "rb");
+    if (!fpb) {
+      vrb.error("Impossible to open mu-PBWT index file [" + load_file +
+                "] (--mupbwt was passed but this reference panel has no "
+                "matching .ser - it must be built with split_reference's "
+                "--mupbwt flag)");
+    }
+    setvbuf(fpb, NULL, _IOFBF, 1024 * 1024 * 4);
+
+    pbwt_deserialize(fpb, &mupbwt);
+    fclose(fpb);
+    vrb.bullet("mu-PBWT loading (" + stb.str(tac.rel_time() * 1.0 / 1000, 2) +
+               "s)");
+  }
 
   // step6 list states
   if (use_list)

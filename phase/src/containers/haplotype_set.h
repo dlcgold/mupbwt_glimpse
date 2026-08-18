@@ -96,6 +96,8 @@ public:
   std::vector<std::set<int>> init_states;
   std::vector<std::vector<int>> list_states;
 
+  std::vector<std::vector<std::pair<int, double>>> prev_selected;
+
   std::vector<unsigned char> tar_hap;
   std::map<int, int> rare_idx_to_id;
 
@@ -144,7 +146,8 @@ public:
   // PBWT ROUTINES
   void allocatePBWT(const int _pbwt_depth, const float _pbwt_modulo_cm,
                     const variant_map &V, const genotype_set &G,
-                    const int _Kinit, const int _Kpbwt);
+                    const int _Kinit, const int _Kpbwt,
+                    const bool _use_mupbwt);
 
   void matchHapsFromCompressedPBWTSmall(const variant_map &V,
                                         const bool main_iteration);
@@ -162,7 +165,8 @@ public:
                            std::vector<int> &uncommon_sites,
                            const genotype_set &G, uint32_t n_sites, int threads,
                            haplotype_set &H, bool common, float mi, float me,
-                           int ma, int mc, int md);
+                           int ma, int mc, int md, bool persistence_enabled,
+                           double persistence_decay, double persistence_floor);
   // void matchHapsFromMuPBWTSMEMS(rlpbwt_int &mupbwt, const variant_map &V,
   // const bool main_iteration, std::vector<int> &uncommon_sites,
   //                          std::vector<std::string> &queries);
