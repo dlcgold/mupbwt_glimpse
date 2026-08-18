@@ -7,7 +7,7 @@ dummy_build_folder_bin := $(shell mkdir -p bin)
 dummy_build_folder_obj := $(shell mkdir -p obj)
 
 #COMPILER & LINKER FLAGS
-CXXFLAG=-O3 
+CXXFLAG=-O3 -mavx2 -mfma -msse3 -Wno-ignored-attributes
 #-mavx2 -mfma -mfma -Wno-ignored-attributes
 LDFLAG=-O3
 LDFLAG += \
