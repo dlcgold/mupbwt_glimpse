@@ -3,8 +3,8 @@
 ## Build
 
 ```shell
-make DNANEXUS=1     # builds against system boost/htslib
-make                 # instead downloads and builds htslib 1.16 + boost 1.73.0 first
+make DNANEXUS=1     # builds with system boost/htslib
+make                # downloads and builds htslib 1.16 + boost 1.73.0 before building
 ```
 
 ## Quick start
@@ -42,7 +42,7 @@ python conc.py unmasked_10k/concordance.rsquare.grp.txt.gz unmasked_10k/plot.pdf
 
 ### split_reference
 
-use `--mupbwt` to build mupbwt alongside stock:
+use `--mupbwt` to build mu-PBWT alongside stock:
 
 |        | without `--mupbwt` (default) | with `--mupbwt`                                         |
 | ------ | ---------------------------- | ------------------------------------------------------- |
