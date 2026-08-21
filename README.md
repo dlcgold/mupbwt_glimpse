@@ -65,3 +65,42 @@ Add `--mupbwt` to phase using the mu-PBWT. Optional flags:
 | `--mupbwt-persistence-floor` | 0.02    | drop a carried-over match once its decayed score falls below this              |
 
 Use more memory should results in better R^2 results.
+
+## Docker
+
+A `Dockerfile` at the repo root builds all five tools (`chunk`, `split_reference`, `phase`, `ligate`,
+`concordance`) plus `GLIMPSE2_simulate_bams_static` into a self-contained image. No local dependencies needed besides Docker.
+
+```shell
+docker build -t glimpse2-mupbwt .
+```
+
+Mount your working directory (here current directory) to `/data`.
+
+```shell
+docker run --rm -v "$PWD:/data" -w /data glimpse2-mupbwt -c "
+/app/GLIMPSE2_simulate_bams_static --input-vcf target_unmasked_100_msprime_sim.bcf \
+  --read-length 150 --contig 1 -O reads100_150_default --thread 7"
+
+docker run --rm -v "$PWD:/data" -w /data glimpse2-mupbwt -c "
+/app/split_reference/bin/GLIMPSE2_split_reference \
+  --reference 10k/ref_panel_10k_msprime_sim.bcf \
+  --input-region 1:77-9999973 --output-region 1:77-9999973 \
+  --output 10k/ref_panel_10k --mupbwt"
+
+docker run --rm -v "$PWD:/data" -w /data glimpse2-mupbwt -c "
+/app/phase/bin/GLIMPSE2_phase \
+  --bam-list unmasked_10k/reads100_150_default/all.txt \
+  --reference 10k/ref_panel_10k_1_77_9999973.bin \
+  --output unmasked_10k/imputed.bcf \
+  --main 15 --burnin 5 --thread 5 --mupbwt"
+
+docker run --rm -v "$PWD:/data" -w /data glimpse2-mupbwt -c "
+/app/concordance/bin/GLIMPSE2_concordance --input unmasked_10k/con.txt \
+  --output unmasked_10k/concordance \
+  --bins 0.00000 0.00100 0.00200 0.00500 0.01000 0.05000 0.10000 0.20000 0.50000 \
+  --thread 4 --gt-val"
+
+# python + conc.py aren't in the image, so plot on the host as usual:
+python conc.py unmasked_10k/concordance.rsquare.grp.txt.gz unmasked_10k/plot.pdf
+```
