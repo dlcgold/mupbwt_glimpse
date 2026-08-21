@@ -101,6 +101,4 @@ docker run --rm -v "$PWD:/data" -w /data glimpse2-mupbwt -c "
   --bins 0.00000 0.00100 0.00200 0.00500 0.01000 0.05000 0.10000 0.20000 0.50000 \
   --thread 4 --gt-val"
 
-# python + conc.py aren't in the image, so plot on the host as usual:
-python conc.py unmasked_10k/concordance.rsquare.grp.txt.gz unmasked_10k/plot.pdf
 ```
