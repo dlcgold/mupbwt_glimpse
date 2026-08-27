@@ -141,30 +141,9 @@ void caller::phase_loop() {
   current_stage = STAGE_BURN;
   int nBurnin = options["burnin"].as<int>();
 
-  std::vector<int> sites;
-
   vrb.bullet("mu-PBWT: " + stb.str(mupbwt.n_haps) + " haplotypes and " +
              stb.str(mupbwt.n_sites) + " variants");
-  int loffset = 0;
-  for (auto a : H.pbwt_grp) {
-    sites.push_back(H.common2tot[a]);
-    // vrb.bullet("adding site " + stb.str(H.common2tot[a]));
-    int random_site = rng.getInt(loffset, a - 1);
-    sites.push_back(random_site);
-
-    loffset = a;
-  }
-  std::sort(sites.begin(), sites.end());
-  // double next_target = V[common2tot[0]]->cm + pbwt_modulo;
-  //
-  // for (int l = 0; l < H.n_common; l++) {
-  //     if (V[H.common2tot[l]]->cm >= next_target) {
-  //         sites.push_back(l);
-  //         next_target = V[H.common2tot[l]]->cm + pbwt_modulo;
-  //     }
-  // }
   int n_q = 0;
-  vrb.bullet("PBWT sites " + stb.str(sites.size()));
   vrb.bullet("# target " + stb.str(G.vecG.size() * 2));
 
   for (int iter = 0; iter < nBurnin; iter++) {
@@ -178,7 +157,7 @@ void caller::phase_loop() {
       uint32_t n_sites = mupbwt.n_sites;
 
       H.matchHapsFromMuPBWT(
-          mupbwt, V, false, sites, G, n_sites, options["threads"].as<int>(), H,
+          mupbwt, V, false, G, n_sites, options["threads"].as<int>(), H,
           use_mu_common, options["mupbwt-min-thr"].as<float>(),
           options["mupbwt-medium-thr"].as<float>(),
           options["mupbwt-max"].as<int>(), options["mupbwt-chunk"].as<int>(),
@@ -213,8 +192,6 @@ void caller::phase_loop() {
     phase_iteration();
   }
 
-  // vrb.bullet("having " + stb.str(sites.size()) + " sites");
-
   current_stage = STAGE_MAIN;
   int nMain = options["main"].as<int>();
 
@@ -229,7 +206,7 @@ void caller::phase_loop() {
       uint32_t n_sites = mupbwt.n_sites;
 
       H.matchHapsFromMuPBWT(
-          mupbwt, V, true, sites, G, n_sites, options["threads"].as<int>(), H,
+          mupbwt, V, true, G, n_sites, options["threads"].as<int>(), H,
           use_mu_common, options["mupbwt-min-thr"].as<float>(),
           options["mupbwt-medium-thr"].as<float>(),
           options["mupbwt-max"].as<int>(), options["mupbwt-chunk"].as<int>(),

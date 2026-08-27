@@ -74,7 +74,7 @@ void phasing_hmm::reallocate(const std::vector < bool > & H0, const std::vector 
 
 		if ((!flat[C->polymorphic_sites[l]]) && (!C->lq_flag[C->polymorphic_sites[l]])) {
 			if (a0 != a1) {
-				VAR_TYP.push_back(n_het % 3);
+				VAR_TYP.push_back((char)(n_het % 3));
 				VAR_ALT.push_back(a0);
 				VAR_ABS.push_back(C->polymorphic_sites[l]);
 				VAR_REL.push_back(l);
@@ -133,10 +133,10 @@ void phasing_hmm::reallocate(const std::vector < bool > & H0, const std::vector 
 	imputeProbSumSum.resize(n_miss);
 	imputeProbOf1s.resize(n_miss * HAP_NUMBER);
 
-	//phasingProb, phasingProbSum, imputeProb and imputeProbSum are fully overwritten
-	//by std::copy from prob/probSumH inside backward() before forward()/IMPUTE_FLAT_HET()
-	//ever read them, so the explicit zeroing here is dead work and was a measurable
-	//memset/memmove cost in profiling.
+	std::fill(phasingProb.begin(), phasingProb.end(), 0.0f);
+	std::fill(phasingProbSum.begin(), phasingProbSum.end(), 0.0f);
+	std::fill(imputeProb.begin(), imputeProb.end(), 0.0f);
+	std::fill(imputeProbSum.begin(), imputeProbSum.end(), 0.0f);
 }
 
 void phasing_hmm::forward()
@@ -220,7 +220,7 @@ void phasing_hmm::backward() {
 		if (curr_segment_locus == 0) {
 			SUMK();
 			//phasingProb[curr_segment_index] = prob;
-			std::copy(prob.begin(), prob.end(), phasingProb.begin()+(size_t)curr_segment_index*C->n_states*HAP_NUMBER);
+			std::copy(prob.begin(), prob.end(), phasingProb.begin()+curr_segment_index*C->n_states*HAP_NUMBER);
 			//phasingProbSum[curr_segment_index] = probSumH;
 			std::copy(probSumH.begin(), probSumH.end(), phasingProbSum.begin()+curr_segment_index*HAP_NUMBER);
 			phasingProbSumSum[curr_segment_index] = probSumT;
@@ -229,7 +229,7 @@ void phasing_hmm::backward() {
 		//STORE PROBS FOR PHASING RARE HETS
 		if (VAR_TYP[curr_idx_locus] == VAR_FLAT_HET) {
 			//imputeProb[curr_missing_locus] = prob;
-			std::copy(prob.begin(), prob.end(), imputeProb.begin()+(size_t)curr_missing_locus*C->n_states*HAP_NUMBER);
+			std::copy(prob.begin(), prob.end(), imputeProb.begin()+curr_missing_locus*C->n_states*HAP_NUMBER);
 			//imputeProbSum[curr_missing_locus] = probSumH;
 			std::copy(probSumH.begin(), probSumH.end(), imputeProbSum.begin()+curr_missing_locus*HAP_NUMBER);
 			imputeProbSumSum[curr_missing_locus] = probSumT;
@@ -247,7 +247,6 @@ void phasing_hmm::backward() {
 void phasing_hmm::rephaseHaplotypes(std::vector < bool > & H0, std::vector < bool > & H1, std::vector < bool > & flat) {
 	reallocate(H0, H1, flat);
 	backward();
-	sumDProbs = 0.0f;
 	for (int d = 0 ; d < HAP_NUMBER ; d ++) {
 		//DProbs[d] = (phasingProbSum[0][d] / phasingProbSumSum[0]) * (phasingProbSum[0][HAP_NUMBER - d - 1] / phasingProbSumSum[0]);
 		DProbs[d] = (phasingProbSum[d] / phasingProbSumSum[0]) * (phasingProbSum[HAP_NUMBER - d - 1] / phasingProbSumSum[0]);

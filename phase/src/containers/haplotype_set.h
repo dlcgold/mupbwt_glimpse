@@ -162,7 +162,6 @@ public:
                            uint32_t n, uint32_t n_sites, int threads);
   void matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
                            const bool main_iteration,
-                           std::vector<int> &uncommon_sites,
                            const genotype_set &G, uint32_t n_sites, int threads,
                            haplotype_set &H, bool common, float mi, float me,
                            int ma, int mc, int md, bool persistence_enabled,

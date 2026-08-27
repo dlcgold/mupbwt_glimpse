@@ -357,7 +357,7 @@ void haplotype_set::allocatePBWT(const int _pbwt_depth,
 
 void haplotype_set::matchHapsFromMuPBWT(
     pbwt &mupbwt, const variant_map &V, const bool main_iteration,
-    std::vector<int> &uncommon_sites, const genotype_set &G, uint32_t n_sites,
+    const genotype_set &G, uint32_t n_sites,
     int threads, haplotype_set &H, bool common, float mi, float me, int ma,
     int mc, int md, bool persistence_enabled, double persistence_decay,
     double persistence_floor) {
@@ -376,8 +376,7 @@ void haplotype_set::matchHapsFromMuPBWT(
     }
   }
 
-  size_t chunk_size = uncommon_sites.size();
-  chunk_size = mc;
+  size_t chunk_size = mc;
   auto tmp_d = pbwt_depth;
   pbwt_depth = md;
   // const double thr_min = n_sites / 1000.0;
@@ -418,7 +417,7 @@ void haplotype_set::matchHapsFromMuPBWT(
     shared(mupbwt, G, n, n_sites, chunk_size, pbwt_depth, pbwt_states,         \
                tar_hapid2ind, thr_min, thr_short, thr_medium, n_haps, K,       \
                sum_smem_time, sum_rank_time, MAX_EXACT_STEPS, H, common,       \
-               uncommon_sites, c_rare, cn_rare, diag_sel_sum, diag_sel_max,    \
+               c_rare, cn_rare, diag_sel_sum, diag_sel_max,    \
                diag_pool_sum, diag_pool_max, prev_selected,                    \
                persistence_enabled, persistence_decay, persistence_floor)
   {
@@ -426,6 +425,7 @@ void haplotype_set::matchHapsFromMuPBWT(
     std::vector<uint32_t> active_haplos;
     active_haplos.reserve(2000);
     std::vector<std::vector<int>> local_states(pbwt_depth);
+    std::vector<bool> rescued_ids(n_haps, false);
 
     std::vector<uint8_t> local_query_buffer(n_sites);
 
@@ -438,6 +438,7 @@ void haplotype_set::matchHapsFromMuPBWT(
 
       for (uint32_t h : active_haplos) {
         haplo_score[h] = 0.0;
+        rescued_ids[h] = false;
       }
       active_haplos.clear();
       for (auto &vec : local_states) {
@@ -506,7 +507,8 @@ void haplotype_set::matchHapsFromMuPBWT(
         };
 
         add_score(start_p);
-        if (last) {
+        if (last && !rescued_ids[start_p]) {
+          rescued_ids[start_p] = true;
 #pragma omp critical
           {
             pbwt_states[target_ind][0].push_back(start_p);
@@ -572,7 +574,6 @@ void haplotype_set::matchHapsFromMuPBWT(
       };
 
       double t_start_smem = omp_get_wtime();
-      size_t o = 0;
       for (size_t i = 0; i < n_sites; i++) {
         c_col = &all_cols[i];
         pbwt_col *next_col = (i < n_sites - 1) ? &all_cols[i + 1] : NULL;
@@ -641,13 +642,6 @@ void haplotype_set::matchHapsFromMuPBWT(
 
         if (p_s == 1 && c_col->e_pa.n <= 15) {
           apply_score_inline(p, l, i, true);
-        }
-
-        if (o < uncommon_sites.size() && i == uncommon_sites[o]) {
-          if (l > thr_min) {
-            apply_score_inline(p, l, i);
-          }
-          o++;
         }
 
         p_p = p;
