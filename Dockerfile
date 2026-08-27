@@ -41,6 +41,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
   libgomp1 \
   libstdc++6 \
   ca-certificates \
+  samtools \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

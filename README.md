@@ -15,7 +15,8 @@ mkdir -p unmasked_10k/reads100_150_default
 ./GLIMPSE2_simulate_bams_static --input-vcf target_unmasked_100_msprime_sim.bcf \
   --read-length 150 --contig 1 -O unmasked_10k/reads100_150_default --thread 7
 
-# 2. build the BAM list phase expects (one absolute path per line)
+# 2. index the BAMs and build the list it expects
+samtools index -M unmasked_10k/reads100_150_default/*.bam
 realpath unmasked_10k/reads100_150_default/*.bam > unmasked_10k/reads100_150_default/all.txt
 
 # 3. split + index the reference panel
@@ -78,7 +79,7 @@ Use more memory should results in better R^2 results.
 ## Docker
 
 A `Dockerfile` at the repo root builds all five tools (`chunk`, `split_reference`, `phase`, `ligate`,
-`concordance`) plus `GLIMPSE2_simulate_bams_static` into a self-contained image. No local dependencies needed besides Docker (or Podman).
+`concordance`) plus `GLIMPSE2_simulate_bams_static` and `samtools` into a self-contained image. No local dependencies needed besides Docker (or Podman).
 
 ```shell
 docker build --load -t glimpse2-mupbwt .
@@ -94,8 +95,9 @@ mkdir -p unmasked_10k/reads100_150_default && \
 /app/GLIMPSE2_simulate_bams_static --input-vcf target_unmasked_100_msprime_sim.bcf \
   --read-length 150 --contig 1 -O unmasked_10k/reads100_150_default --thread 7"
 
-# 2. build the BAM list phase expects (one path per line)
+# 2. index the BAMs and build list
 docker run --rm -v "$PWD:/data" -w /data glimpse2-mupbwt -c "
+samtools index -M unmasked_10k/reads100_150_default/*.bam && \
 realpath unmasked_10k/reads100_150_default/*.bam > unmasked_10k/reads100_150_default/all.txt"
 
 # 3. split + index the reference panel
