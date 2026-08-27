@@ -357,9 +357,9 @@ void haplotype_set::allocatePBWT(const int _pbwt_depth,
 
 void haplotype_set::matchHapsFromMuPBWT(
     pbwt &mupbwt, const variant_map &V, const bool main_iteration,
-    const genotype_set &G, uint32_t n_sites,
-    int threads, haplotype_set &H, bool common, float mi, float me, int ma,
-    int mc, int md, bool persistence_enabled, double persistence_decay,
+    const genotype_set &G, uint32_t n_sites, int threads, haplotype_set &H,
+    bool common, float mi, float me, int ma, int mc, int md,
+    bool persistence_enabled, double persistence_decay,
     double persistence_floor) {
   omp_set_num_threads(threads);
 
@@ -417,9 +417,9 @@ void haplotype_set::matchHapsFromMuPBWT(
     shared(mupbwt, G, n, n_sites, chunk_size, pbwt_depth, pbwt_states,         \
                tar_hapid2ind, thr_min, thr_short, thr_medium, n_haps, K,       \
                sum_smem_time, sum_rank_time, MAX_EXACT_STEPS, H, common,       \
-               c_rare, cn_rare, diag_sel_sum, diag_sel_max,    \
-               diag_pool_sum, diag_pool_max, prev_selected,                    \
-               persistence_enabled, persistence_decay, persistence_floor)
+               c_rare, cn_rare, diag_sel_sum, diag_sel_max, diag_pool_sum,     \
+               diag_pool_max, prev_selected, persistence_enabled,              \
+               persistence_decay, persistence_floor)
   {
     std::vector<double> haplo_score(n_haps, 0.0);
     std::vector<uint32_t> active_haplos;
@@ -589,6 +589,7 @@ void haplotype_set::matchHapsFromMuPBWT(
           if (UNLIKELY(p_n == 1)) {
             p = n_haps;
             l = 0;
+            p_s = 0;
             if (next_col) {
               c_p = c_arr_get(&next_col->e_pa, next_col->e_pa.n - 1);
               c_i = n_haps - 1;
