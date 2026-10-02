@@ -58,12 +58,9 @@ static inline __attribute__((always_inline)) uint32_t phi_l(const phi *p,
   uint32_t t_c = c_arr_rank(&p->phi_pos[pa_v], c);
   t_c -= (t_c == p->phi_supp[pa_v].n) & (t_c > 0);
 
-  uint32_t e_c = p->n_w - 1;
-  e_c =
-      e_c -
-      ((t_c < p->phi_supp[pa_v].n - 1) ? e_c - c_arr_get(&p->phi_pos[pa_v], t_c)
-                                       : 0) +
-      ((t_c < p->phi_supp[pa_v].n - 1) ? 0 : e_c - e_c);
+  uint32_t e_c = (t_c < p->phi_pos[pa_v].n)
+                     ? c_arr_get(&p->phi_pos[pa_v], t_c)
+                     : p->n_w - 1;
 
   return c_arr_get(&p->phi_l_supp[pa_v], t_c) - (e_c - c);
 }
