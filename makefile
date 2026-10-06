@@ -21,7 +21,7 @@ all: deps $(PROJECTS)
 
 deps: $(DEPS)
 
-$(PROJECTS):
+$(PROJECTS): deps
 	$(MAKE) -C $@ $(COMPILATION_ENV)
 
 
@@ -32,7 +32,7 @@ $(HTSLIB):
 	cd htslib && ./configure --enable-libcurl --enable-s3 --enable-gcs && make
 	rm -f htslib-1.16.tar.bz2
 
-$(BOOST_LIBS):
+$(BOOST_LIBS) &:
 	wget https://archives.boost.io/release/1.73.0/source/boost_1_73_0.tar.bz2
 	tar -xjf boost_1_73_0.tar.bz2
 	cd boost_1_73_0 && \
