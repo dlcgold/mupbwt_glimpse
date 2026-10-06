@@ -29,7 +29,7 @@ $(HTSLIB):
 	wget https://github.com/samtools/htslib/releases/download/1.16/htslib-1.16.tar.bz2
 	tar -xf htslib-1.16.tar.bz2
 	mv htslib-1.16 htslib
-	cd htslib && make
+	cd htslib && ./configure --enable-libcurl --enable-s3 --enable-gcs && make
 	rm -f htslib-1.16.tar.bz2
 
 $(BOOST_LIBS):
