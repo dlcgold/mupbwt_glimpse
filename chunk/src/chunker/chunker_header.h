@@ -29,6 +29,65 @@
 #include <utils/otools.h>
 #include <io/gmap_reader.h>
 
+struct chunk_info
+{
+	std::string chr;
+	std::vector<long int> buf_start;
+	std::vector<long int> buf_stop;
+	std::vector<long int> cnk_start;
+	std::vector<long int> cnk_stop;
+	std::vector<float> curr_window_cm_size;
+	std::vector<long int> curr_window_mb_size;
+	std::vector<long int> curr_window_count;
+	std::vector<long int> curr_window_common_count;
+
+	chunk_info(){};
+	chunk_info(std::string _chr) : chr(_chr){};
+
+	void reset()
+	{
+		buf_start.clear();
+		buf_stop.clear();
+		cnk_start.clear();
+		cnk_stop.clear();
+		curr_window_cm_size.clear();
+		curr_window_mb_size.clear();
+		curr_window_count.clear();
+		curr_window_common_count.clear();
+	}
+
+	void add_chunk(long int _buf_start, long int _buf_stop, long int _cnk_start, long int _cnk_stop, float _curr_window_cm_size, long int _curr_window_mb_size, long int _curr_window_count, long int _curr_window_common_count)
+	{
+		assert(_buf_start < _buf_stop);
+		assert(_cnk_start < _cnk_stop);
+		assert(_buf_start <= _cnk_start);
+		assert(_buf_stop >= _buf_stop);
+
+		buf_start.push_back(_buf_start);
+		buf_stop.push_back(_buf_stop);
+		cnk_start.push_back(_cnk_start);
+		cnk_stop.push_back(_cnk_stop);
+		curr_window_cm_size.push_back(_curr_window_cm_size);
+		curr_window_mb_size.push_back(_curr_window_mb_size);
+		curr_window_count.push_back(_curr_window_count);
+		curr_window_common_count.push_back(_curr_window_common_count);
+	}
+
+	void output_to_file(output_file& fd)
+	{
+		for (long int i=0; i<buf_start.size(); ++i)
+		{
+			if (i<buf_start.size()-1)
+			{
+				long int mean_curr_stop_next_start = (cnk_stop[i] + cnk_start[i+1]) /2;
+				cnk_stop[i] = mean_curr_stop_next_start;
+				cnk_start[i + 1] = mean_curr_stop_next_start+1;
+			}
+			fd << i << "\t" << chr << "\t" << chr << ":"<< buf_start[i] << "-" << buf_stop[i] << "\t" << chr << ":" << cnk_start[i] << "-" << cnk_stop[i] << "\t" << curr_window_cm_size[i] << "\t" << curr_window_mb_size[i] << "\t" << curr_window_count[i] <<"\t" << curr_window_common_count[i] << std::endl;
+		}
+	}
+};
+
 class chunker {
 public:
 	//COMMAND LINE OPTIONS
@@ -41,39 +100,42 @@ public:
 	float sparse_maf;
 	std::string chrID;
 	std::vector < float > positions_all_cm;
-	std::vector < int > positions_all_mb;
+	std::vector < long int > positions_all_mb;
 
 	std::vector < float > positions_common_cm;
-	std::vector < int > positions_common_mb;
+	std::vector < long int > positions_common_mb;
 
-	std::vector < int > all2common;
-	std::vector < int > common2all;
+	std::vector < long int > all2common;
+	std::vector < long int > common2all;
 
-	std::multimap < int, int > map_positions_all;	//associative container of variant with position in bp
+	std::multimap < long int, long int > map_positions_all;	//associative container of variant with position in bp
 
 	std::vector<float> chunk_cm_length;
-	std::vector<int> chunk_mb_length;
-	std::vector<int> chunk_common_count;
+	std::vector<long int> chunk_mb_length;
+	std::vector<long int> chunk_common_count;
+
+	chunk_info cnk_info;
 
 	//PARAMETERS
 	std::string gregion;
-	int start;
-	int stop;
+	long int start;
+	long int stop;
 	bool whole_chr;
+	long int contig_len;
 
 	float window_cm;
 	float window_mb;
-	int window_count;
+	long int window_count;
 	float buffer_cm;
 	float buffer_mb;
-	int buffer_count;
+	long int buffer_count;
 
 	//CONSTRUCTOR
 	chunker();
 	~chunker();
 
 	//METHODS
-	void readData(std::string fmain, std::string region, int nthreads);
+	void readData(std::string fmain, std::string region, long int nthreads);
 
 	//PARAMETERS
 	void declare_options();
@@ -83,21 +145,22 @@ public:
 	void verbose_files();
 
 	//FILE I/O
-	void split_recursive(output_file &, int &, std::string &, int, int);
-	void split_sequential(output_file &, int &, std::string &, int, int, const bool);
-	void add_buffer(const int, const int, int&, int&);
+	void split_recursive(output_file &, long int &, std::string &, long int, long int);
+	void split_recursive_no_reset(output_file &, long int &, std::string &, long int, long int);
+	void split_sequential(output_file &, long int &, std::string &, long int, long int, const bool);
+	void add_buffer(const long int, const long int, long int&, long int&);
 	void chunk();
 	void chunk(std::vector < std::string > &);
 	void buildCoordinates();
 	void parseRegion();
 
 
-	std::vector < int > getByPos(const int, const std::multimap < int, int >& map_positions);
-	void setGeneticMap(const gmap_reader&, const std::multimap < int, int >&, const std::vector<int>& positions_mb, std::vector<float>& positions_cm);
-	void setGeneticMap(const std::multimap < int, int >&, const std::vector<int>& positions_mb, std::vector<float>& positions_cm);
-	int setCentiMorgan(const std::vector < int > & pos_bp, const std::vector < double > & pos_cM, const std::multimap < int, int >& map_positions, std::vector<float> & positions_cm);
-	int interpolateCentiMorgan(const std::vector < int > & pos_bp, const std::vector < double > & pos_cM, const std::multimap < int, int >&, const std::vector<int> & positions_mb, std::vector<float>& positions_cm);
-	unsigned int length() const;
+	std::vector < long int > getByPos(const long int, const std::multimap < long int, long int >& map_positions);
+	void setGeneticMap(const gmap_reader&, const std::multimap < long int, long int >&, const std::vector<long int>& positions_mb, std::vector<float>& positions_cm);
+	void setGeneticMap(const std::multimap < long int, long int >&, const std::vector<long int>& positions_mb, std::vector<float>& positions_cm);
+	long int setCentiMorgan(const std::vector < long int > & pos_bp, const std::vector < double > & pos_cM, const std::multimap < long int, long int >& map_positions, std::vector<float> & positions_cm);
+	long int interpolateCentiMorgan(const std::vector < long int > & pos_bp, const std::vector < double > & pos_cM, const std::multimap < long int, long int >&, const std::vector<long int> & positions_mb, std::vector<float>& positions_cm);
+	unsigned long int length() const;
 	double lengthcM() const;
 
 };
