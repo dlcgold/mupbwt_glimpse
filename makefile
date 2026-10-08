@@ -1,17 +1,16 @@
-PROJECTS = chunk concordance ligate phase split_reference phase_common split_reference_common
-
+PROJECTS = chunk concordance ligate phase split_reference phase_legacy_index split_reference_legacy_index build_ser_from_bin build_ser_from_bcf
 HTSLIB = htslib/libhts.a
 BOOST_LIBS = \
 	boost/lib/libboost_iostreams.so \
 	boost/lib/libboost_program_options.so \
 	boost/lib/libboost_serialization.so
-SDSL = sdsl/lib/libsdsl.a
+
 
 
 ifeq ($(DNANEXUS),1)
-DEPS = $(SDSL)
+DEPS = 
 else
-DEPS = $(HTSLIB) $(BOOST_LIBS) $(SDSL)
+DEPS = $(HTSLIB) $(BOOST_LIBS)
 endif
 
 
@@ -44,11 +43,6 @@ $(BOOST_LIBS):
 	rm -f boost_1_73_0.tar.bz2
 	rm -rf boost_1_73_0
 
-
-$(SDSL):
-	git clone https://github.com/simongog/sdsl-lite.git
-	cd sdsl-lite && ./install.sh ../sdsl
-	rm -rf sdsl-lite
 
 
 clean:
