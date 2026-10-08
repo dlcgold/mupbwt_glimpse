@@ -8,28 +8,33 @@ dummy_build_folder_obj := $(shell mkdir -p obj)
 
 #COMPILER & LINKER FLAGS
 CXXFLAG=-O3 -mavx2 -mfma -msse3 -Wno-ignored-attributes
+#-mavx2 -mfma -mfma -Wno-ignored-attributes
 LDFLAG=-O3
-##LDFLAG += -Wl,-rpath,'$$ORIGIN/../../boost/lib'
 LDFLAG += \
   -Wl,-rpath,'$$ORIGIN/../../boost/lib' \
   -Wl,-rpath,'$$ORIGIN/../../htslib' \
   -Wl,-rpath,'$$ORIGIN/../../sdsl/lib'
+
 #CXXFLAG=-O0 -g -mavx2 -mfma -Wno-ignored-attributes
 #LDFLAG=-O0
 
 #DYNAMIC LIBRARIES
-DYN_LIBS=-lz -lpthread -lbz2 -llzma -lcurl -lcrypto -fopenmp
+DYN_LIBS=-lz -lpthread -lbz2 -llzma -lcurl -lcrypto
 
 HFILE=$(shell find src -name *.h)
 # CFILE=$(shell find src -name *.cpp)
 # OFILE=$(shell for file in `find src -name *.cpp`; do echo obj/$$(basename $$file .cpp).o; done)
 # VPATH=$(shell for file in `find src -name *.cpp`; do echo $$(dirname $$file); done)
+#
 CPP_FILES=$(shell find src -name "*.cpp")
 C_FILES=$(shell find src -name "*.c")
 
 OFILE=$(shell for file in $(CPP_FILES); do echo obj/$$(basename $$file .cpp).o; done)
 OFILE+=$(shell for file in $(C_FILES); do echo obj/$$(basename $$file .c).o; done)
+
 VPATH=$(shell find src -type d)
+
+
 NAME=$(shell basename $(CURDIR))
 BFILE=bin/GLIMPSE2_$(NAME)
 EXEFILE=bin/GLIMPSE2_$(NAME)_static
@@ -66,6 +71,7 @@ ifeq ($(BGEN_SUPPORT),YES)
 	CXXFLAG+= -D__BGEN__ -I$(BGEN_INC)
 endif
 
+
 BOOST_INC=../boost/include
 BOOST_LIB_IO=../boost/lib/libboost_iostreams.so
 BOOST_LIB_PO=../boost/lib/libboost_program_options.so
@@ -81,9 +87,12 @@ HTSLIB_INC = /usr/local/include
 HTSLIB_LIB = /usr/local/lib/libhts.a
 endif
 
+
+
+
 #COMPILATION RULES
 all: $(BFILE)
-	
+
 $(BFILE): $(OFILE)
 	$(CXX) $(LDFLAG) $^  -L${HTSLIB_INC} -lhts -fopenmp $(BOOST_LIB_IO) $(BOOST_LIB_PO) $(BOOST_LIB_SE) $(BGEN_LIB) -o $@ $(DYN_LIBS)
 

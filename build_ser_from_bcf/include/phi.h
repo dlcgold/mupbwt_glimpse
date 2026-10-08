@@ -73,11 +73,6 @@ static inline __attribute__((always_inline)) uint32_t phi_l(const phi *p,
   uint32_t t_c = c_arr_rank_range(&p->pos, pos_base, pos_len, c);
   t_c -= (t_c == supp_len) & (t_c > 0);
 
-  // The last support entry's end column is n_w-1 only when that entry was
-  // the synthetic "chromosome end" one appended by the builder (supp_len ==
-  // pos_len + 1); when supp_len == pos_len, the last entry has a real pos
-  // and e_c must be that pos, not n_w-1. Was: (t_c < supp_len - 1), which
-  // mistreats the no-extra-entry case and underflows the returned length.
   uint32_t e_c = (t_c < pos_len) ? c_arr_get(&p->pos, pos_base + t_c) : p->n_w - 1;
 
   return c_arr_get(&p->l_supp, l_supp_base + t_c) - (e_c - c);
