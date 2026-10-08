@@ -78,8 +78,7 @@ void caller::read_files_and_initialise() {
                          options["threads"].as<int>(), output_prefix, reg_out,
                          build_mupbwt);
 
-    if (!build_mupbwt)
-      H.build_sparsePBWT(V);
+    H.build_sparsePBWT(V);
 
     if (readerGM.pos_cm.size() > 1)
       V.setGeneticMap(readerGM);

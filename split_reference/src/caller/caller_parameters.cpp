@@ -46,9 +46,8 @@ void caller::declare_options() {
       "keep-monomorphic-ref-sites",
       "(Expert setting) Keeps monomorphic markers in the reference panel "
       "(removed by default)")(
-      "mupbwt", "build the mu-PBWT index (.ser) instead of the stock GLIMPSE "
-                "compressed PBWT. Without this flag, only the stock PBWT is "
-                "built; with it, only mu-PBWT is built.");
+      "mupbwt", "additionally build the mu-PBWT index (.ser) alongside the "
+                "stock GLIMPSE compressed PBWT (always built in the .bin).");
 
   bpo::options_description opt_output("Output parameters");
   opt_output.add_options()("output,O", bpo::value<std::string>(),
@@ -157,7 +156,7 @@ void caller::verbose_options() {
              stb.str(options["threads"].as<int>()) + "]");
   vrb.bullet("Mode                 : [" +
              std::string(build_mupbwt
-                            ? "mu-PBWT only, stock GLIMPSE PBWT not built"
+                            ? "stock GLIMPSE PBWT and mu-PBWT both built"
                             : "stock GLIMPSE PBWT only, mu-PBWT not built") +
              "]");
 }

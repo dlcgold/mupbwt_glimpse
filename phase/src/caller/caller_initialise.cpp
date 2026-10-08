@@ -260,8 +260,9 @@ bool caller::read_binary_reference_panel(
 
   if (H.Ypacked.size() == 0 && !use_mu) {
     err_msg = "Problem reading binary file format [v2.0.0] (reference panel "
-              "has no stock PBWT — if it was built with --mupbwt-opt, you "
-              "must pass --mupbwt to phase)";
+              "has no stock PBWT — it may have been built with an older "
+              "split_reference that only built mu-PBWT; pass --mupbwt to "
+              "phase, or rebuild the reference)";
     non_retryable = true;
     return false;
   }
