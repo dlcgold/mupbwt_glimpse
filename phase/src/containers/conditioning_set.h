@@ -78,6 +78,9 @@ public:
 	std::vector<unsigned int> swap_ref;
 	std::vector<unsigned int> swap_tar;
 
+	unsigned int cached_full_panel_n;
+	bool transitions_valid;
+
 	//CONSTRUCTOR/DESTRUCTOR/INITIALIZATION
 	conditioning_set(const variant_map &, const haplotype_set &, const unsigned int, const unsigned int, const int,const int, const float, const float, const bool );
 	~conditioning_set();

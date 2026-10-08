@@ -25,6 +25,13 @@
 
 #include <caller/caller_header.h>
 #include <omp.h>
+#include "boost/serialization/serialization.hpp"
+#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/binary_iarchive.hpp>
+#include <filesystem>
+
+const std::string stage_names[3] = {"Init", "Burn-in", "Main"};
+
 void *phase_callback(void *ptr) {
   caller *S = static_cast<caller *>(ptr);
   int id_worker, id_job;
@@ -90,6 +97,36 @@ void caller::phase_individual(const int id_worker, const int id_job) {
 }
 
 void caller::phase_iteration() {
+  if (current_stage == STAGE_INIT) {
+    vrb.title("Initializing iteration");
+
+    H.initRareTar(G, V);
+    H.performSelection_RARE_INIT_GL(V);
+  } else {
+    vrb.title(stb.str(stage_names[current_stage]) + " iteration [" +
+              stb.str(current_iteration + 1) + "/" +
+              stb.str(iterations_per_stage[current_stage]) + "]");
+    H.updateHaplotypes(G);
+    H.transposeRareTar();
+
+    if (use_mu) {
+      uint32_t n_sites = mupbwt.n_sites;
+      H.matchHapsFromMuPBWT(
+          mupbwt, V, current_stage == STAGE_MAIN, G, n_sites,
+          options["threads"].as<int>(), H, use_mu_common,
+          options["mupbwt-min-cm"].as<float>(),
+          options["mupbwt-short-cm"].as<float>(),
+          options["mupbwt-medium-cm"].as<float>(),
+          options["mupbwt-max"].as<int>(), options["mupbwt-chunk"].as<int>(),
+          options["mupbwt-depth"].as<int>(),
+          options["mupbwt-persistence"].as<bool>(),
+          options["mupbwt-persistence-decay"].as<float>(),
+          options["mupbwt-persistence-floor"].as<float>());
+    } else {
+      H.matchHapsFromCompressedPBWTSmall(V, current_stage == STAGE_MAIN);
+    }
+  }
+
   tac.clock();
   int n_thread = options["threads"].as<int>();
   i_workers = 0;
@@ -115,6 +152,111 @@ void caller::phase_iteration() {
   vrb.bullet("HMM imputation [#states=" + stb.str(statH.mean(), 1) +
              " / %poly=" + stb.str(statC.mean(), 1) + "%] (" +
              stb.str(tac.rel_time() * 1.0 / 1000, 2) + "s)");
+
+  write_checkpoint();
+
+  if (current_stage == STAGE_INIT) {
+    H.init_states.clear();
+    H.init_states.shrink_to_fit();
+  }
+}
+
+void caller::increment_iteration() {
+  current_iteration++;
+  while (current_iteration >= iterations_per_stage[current_stage] &&
+         current_stage <= STAGE_MAIN) {
+    current_stage++;
+    current_iteration = 0;
+  }
+}
+
+void caller::write_checkpoint() {
+  if (options.count("checkpoint-file-out")) {
+    vrb.bullet("writing out checkpoint");
+    std::string cp_filename = options["checkpoint-file-out"].as<std::string>();
+    std::string tmp_cp_filename = cp_filename + ".tmp";
+    std::ofstream ofs(tmp_cp_filename, std::ios::binary | std::ios_base::out);
+    boost::archive::binary_oarchive oa(ofs);
+    tac.clock();
+    oa << crc.get_value();
+    oa << current_stage;
+    oa << current_iteration;
+    oa << iterations_per_stage[STAGE_BURN];
+    oa << options["ne"].as<int>();
+    oa << options["min-gl"].as<float>();
+    oa << options["err-imp"].as<float>();
+    oa << options["err-phase"].as<float>();
+    oa << options["pbwt-depth"].as<int>();
+    oa << options["pbwt-modulo-cm"].as<float>();
+    oa << options["Kinit"].as<int>();
+    oa << options["Kpbwt"].as<int>();
+
+    std::stringstream rng_state;
+    rng_state << rng.getEngine();
+    std::string rng_state_str = rng_state.str();
+    oa << rng_state_str;
+
+    G.serialize_checkpoint_data(oa);
+    std::filesystem::rename(tmp_cp_filename.c_str(), cp_filename.c_str());
+    vrb.bullet("checkpoint completed (" + stb.str(tac.rel_time(), 2) + "ms)");
+  }
+}
+
+void caller::read_checkpoint_if_available() {
+  if (options.count("checkpoint-file-in")) {
+    vrb.bullet("reading checkpoint");
+    std::string cp_filename = options["checkpoint-file-in"].as<std::string>();
+    std::ifstream ifs(cp_filename, std::ios::binary | std::ios_base::in);
+    boost::archive::binary_iarchive ia(ifs);
+    unsigned long long checkpoint_crc;
+    ia >> checkpoint_crc;
+    if (checkpoint_crc != crc.get_value()) {
+      vrb.error("Input data checksum in checkpoint file does not match "
+                "checksum of input data for this run.");
+    }
+    ia >> current_stage;
+    ia >> current_iteration;
+    int checkpoint_burnin_iterations;
+    ia >> checkpoint_burnin_iterations;
+    if (current_iteration >= iterations_per_stage[current_stage]) {
+      std::stringstream err_str;
+      err_str << "Checkpoint file has already run " << current_iteration + 1
+               << " iterations for stage" << stage_names[current_stage]
+               << ", and this run only calls for "
+               << iterations_per_stage[current_stage]
+               << ". This run must call for at least a many iterations as "
+                  "the checkpoint file already ran in order to use this "
+                  "checkpoint file.";
+      vrb.error(err_str.str());
+    }
+    if (current_stage == STAGE_MAIN &&
+        checkpoint_burnin_iterations != iterations_per_stage[STAGE_BURN]) {
+      std::stringstream err_str;
+      err_str << "Checkpoint file is in Main stage, and ran "
+               << checkpoint_burnin_iterations
+               << " burn-in iterations, while this run calls for "
+               << iterations_per_stage[STAGE_BURN]
+               << " burn-in iterations.  These values must be equal to use "
+                  "this checkpoint file.";
+      vrb.error(err_str.str());
+    }
+    confirm_checkpoint_param<int>(ia, "ne");
+    confirm_checkpoint_param<float>(ia, "min-gl");
+    confirm_checkpoint_param<float>(ia, "err-imp");
+    confirm_checkpoint_param<float>(ia, "err-phase");
+    confirm_checkpoint_param<int>(ia, "pbwt-depth");
+    confirm_checkpoint_param<float>(ia, "pbwt-modulo-cm");
+    confirm_checkpoint_param<int>(ia, "Kinit");
+    confirm_checkpoint_param<int>(ia, "Kpbwt");
+
+    std::string rng_state_str;
+    ia >> rng_state_str;
+    std::stringstream rng_state(rng_state_str);
+    rng_state >> rng.getEngine();
+
+    G.serialize_checkpoint_data(ia);
+    vrb.bullet("checkpoint read");
+  }
 }
 
 void caller::phase_loop() {
@@ -125,235 +267,23 @@ void caller::phase_loop() {
     } else {
       omp_set_num_threads(options["threads"].as<int>());
     }
+    vrb.bullet("mu-PBWT: " + stb.str(mupbwt.n_haps) + " haplotypes and " +
+               stb.str(mupbwt.n_sites) + " variants");
+    vrb.bullet("# target " + stb.str(G.vecG.size() * 2));
   }
-  // First Iteration
+
   current_stage = STAGE_INIT;
-  vrb.title("Initializing iteration");
+  current_iteration = -1;
 
-  H.initRareTar(G, V);
-  H.performSelection_RARE_INIT_GL(V); // not parallel
+  read_checkpoint_if_available();
 
-  phase_iteration();
+  increment_iteration();
 
-  H.init_states.clear();
-  H.init_states.shrink_to_fit();
-
-  // Burn-in 0
-  current_stage = STAGE_BURN;
-  int nBurnin = options["burnin"].as<int>();
-  // nBurnin = 1;
-  //    std::vector<std::string> tmp;
-  //    rlpbwt_int mu(options["reference_panel"].as<std::string>(), tmp, H, V,
-  //                  V.input_gregion, 1);
-  // mupbwt = mu;
-  std::vector<int> sites;
-
-  vrb.bullet("mu-PBWT: " + stb.str(mupbwt.height) + " haplotypes and " +
-             stb.str(mupbwt.width) + " variants");
-  for (auto a : H.pbwt_grp) {
-    sites.push_back(H.common2tot[a]);
-    // std::cout << H.common2tot[a] << "\t";
-  }
-  //    for (int i = 0; i < mupbwt.height; i++) {
-  //        std::cerr << mupbwt.get_row(i) << "\n";
-  //    }
-
-  int n_q = 0;
-  vrb.bullet("PBWT sites " + stb.str(sites.size()));
-  for (int iter = 0; iter < nBurnin; iter++) {
-    vrb.title("Burn-in iteration [" + stb.str(iter + 1) + "/" +
-              stb.str(nBurnin) + "]");
-
-    H.updateHaplotypes(G);
-    H.transposeRareTar();
-    if (use_mu) {
-      std::vector<std::string> queries;
-      for (auto &i : G.vecG) {
-        unsigned site_c = 0;
-        std::string query;
-        for (auto &&j : i->H0) {
-          if (use_mu_common) {
-            if (H.flag_common[site_c]) {
-              if (j) {
-                query.push_back('1');
-              } else {
-                query.push_back('0');
-              }
-            }
-          } else {
-            if (j) {
-              query.push_back('1');
-            } else {
-              query.push_back('0');
-            }
-          }
-          site_c++;
-        }
-
-        queries.push_back(query);
-        query.clear();
-        site_c = 0;
-
-        for (auto &&j : i->H0) {
-          if (use_mu_common) {
-            if (H.flag_common[site_c]) {
-              if (j) {
-                query.push_back('1');
-              } else {
-                query.push_back('0');
-              }
-            }
-          } else {
-            if (j) {
-              query.push_back('1');
-            } else {
-              query.push_back('0');
-            }
-          }
-          site_c++;
-        }
-
-        queries.push_back(query);
-      }
-      //            if (iter == 0) {
-      //                for(auto &q: queries){
-      //                    std::cerr << q << "\n";
-      //                }
-      //            }
-      n_q = queries.size();
-      if (!use_smems && !use_mpsc) {
-        H.matchHapsFromMuPBWT(mupbwt, V, false, sites, queries);
-      } else if (use_smems && !use_mpsc) {
-        H.matchHapsFromMuPBWTSMEMS(mupbwt, V, false, sites, queries);
-      } else if (!use_smems && use_mpsc) {
-        H.matchHapsFromMuPBWTSMEMS(mupbwt, V, false, sites, queries);
-      }
-    } else {
-      H.matchHapsFromCompressedPBWTSmall(V, false);
-    }
-    // for (int i = 0; i < H.pbwt_states[0].size(); i++) {
-    //   vrb.bullet("after extraction pbwt_states: " + stb.str(n_q) +
-    //              " queries, " + stb.str(i) + " depth, " +
-    //              stb.str(H.pbwt_states[0][i].size()) + " haplotypes");
-    // }
-    // vrb.bullet("n_q = " + std::to_string(n_q));
-    // vrb.bullet("pbwt_states.size() = " +
-    // std::to_string(H.pbwt_states.size()));
-    // size_t max_depth = 0;
-    // for (size_t q = 0; q < n_q / 2; q++) {
-    //   max_depth = std::max(max_depth, H.pbwt_states[q].size());
-    // }
-    //
-    // for (size_t d = 0; d < max_depth; d++) {
-    //   size_t total_haplos = 0;
-    //
-    //   for (size_t q = 0; q < n_q / 2; q++) {
-    //     if (H.pbwt_states[q].size() > d) {
-    //       total_haplos += H.pbwt_states[q][d].size();
-    //     }
-    //   }
-    //
-    //   vrb.bullet("after extraction pbwt_states: total haplotypes at depth " +
-    //              std::to_string(d) + " = " + std::to_string(total_haplos));
-    // }
-    current_stage = STAGE_RESTRICT;
+  while (current_stage <= STAGE_MAIN) {
     phase_iteration();
-    current_stage = STAGE_BURN;
-    phase_iteration();
-  }
-  vrb.bullet("having " + stb.str(sites.size()) + " sites");
-  // Main
-  current_stage = STAGE_MAIN;
-  int nMain = options["main"].as<int>();
-  // nMain = 0;
-  for (int iter = 0; iter < nMain; iter++) {
-    vrb.title("Main iteration [" + stb.str(iter + 1) + "/" + stb.str(nMain) +
-              "]");
-    H.updateHaplotypes(G);
-    H.transposeRareTar();
-
-    if (use_mu) {
-      std::vector<std::string> queries;
-      for (auto &i : G.vecG) {
-        std::string query;
-        unsigned int site_c = 0;
-
-        for (auto &&j : i->H0) {
-          if (use_mu_common) {
-            if (H.flag_common[site_c]) {
-              if (j) {
-                query.push_back('1');
-              } else {
-                query.push_back('0');
-              }
-            }
-          } else {
-            if (j) {
-              query.push_back('1');
-            } else {
-              query.push_back('0');
-            }
-          }
-          site_c++;
-        }
-        queries.push_back(query);
-        query.clear();
-        site_c = 0;
-        for (auto &&j : i->H0) {
-          if (use_mu_common) {
-            if (H.flag_common[site_c]) {
-              if (j) {
-                query.push_back('1');
-              } else {
-                query.push_back('0');
-              }
-            }
-          } else {
-            if (j) {
-              query.push_back('1');
-            } else {
-              query.push_back('0');
-            }
-          }
-          site_c++;
-        }
-        queries.push_back(query);
-      }
-      n_q = queries.size();
-      if (!use_smems && !use_mpsc) {
-        H.matchHapsFromMuPBWT(mupbwt, V, false, sites, queries);
-      } else if (use_smems && !use_mpsc) {
-        H.matchHapsFromMuPBWTSMEMS(mupbwt, V, false, sites, queries);
-      } else if (!use_smems && use_mpsc) {
-        H.matchHapsFromMuPBWTMPSC(mupbwt, V, false, sites, queries);
-      }
-    } else {
-      H.matchHapsFromCompressedPBWTSmall(V, false);
-    }
-    // size_t max_depth = 0;
-    // for (size_t q = 0; q < n_q / 2; q++) {
-    //   max_depth = std::max(max_depth, H.pbwt_states[q].size());
-    // }
-    //
-    // for (size_t d = 0; d < max_depth; d++) {
-    //   size_t total_haplos = 0;
-    //
-    //   for (size_t q = 0; q < n_q / 2; q++) {
-    //     if (H.pbwt_states[q].size() > d) {
-    //       total_haplos += H.pbwt_states[q][d].size();
-    //     }
-    //   }
-    //
-    //   vrb.bullet("after extraction pbwt_states: total haplotypes at depth " +
-    //              std::to_string(d) + " = " + std::to_string(total_haplos));
-    // }
-    phase_iteration();
+    increment_iteration();
   }
 
-  // Finalization
-  // vrb.title("Finalization");
   for (int i = 0; i < G.vecG.size(); i++)
     G.vecG[i]->sortAndNormAndInferGenotype();
-
-  // vrb.bullet("done");
 }

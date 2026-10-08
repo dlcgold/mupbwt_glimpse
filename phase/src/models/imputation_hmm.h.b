@@ -23,23 +23,39 @@
  * SOFTWARE.
  ******************************************************************************/
 
-#ifndef _GMAP_DATA_H
-#define _GMAP_DATA_H
+#ifndef _HAPLOTYPE_HMM_H
+#define _HAPLOTYPE_HMM_H
 
 #include <utils/otools.h>
+#include <containers/conditioning_set.h>
+#include <immintrin.h>
+#include <boost/align/aligned_allocator.hpp>
 
-class gmap_reader {
+template <typename T>
+using aligned_vector32 = std::vector<T, boost::alignment::aligned_allocator < T, 32 > >;
+
+class imputation_hmm {
+private:
+	conditioning_set * C;
+	unsigned int modK;
+
+	//DYNAMIC ARRAYS
+	aligned_vector32 < float > Emissions;
+	aligned_vector32 < float > Alpha;
+	aligned_vector32 < float > AlphaSum;
+	aligned_vector32 < float > Beta;
+
 public:
-	//DATA
-	std::vector < long int > pos_bp;
-	std::vector < double > pos_cm;
-
 	//CONSTRUCTOR/DESTRUCTOR
-	gmap_reader();
-	~gmap_reader();
+	imputation_hmm(conditioning_set *);
+	~imputation_hmm();
 
-	//IO
-	void readGeneticMapFile(const std::string);
+	void resize();
+	void init(const std::vector < float > &);
+	void forward(std::vector < bool > &);
+	void backward(const std::vector < float > &, std::vector < bool > &, std::vector < float > &);
+	void computePosteriors(const std::vector < float > &, std::vector < bool > &, std::vector < float > &);
+
 };
 
 #endif

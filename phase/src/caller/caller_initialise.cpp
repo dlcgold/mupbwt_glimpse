@@ -25,12 +25,15 @@
 
 #include <caller/caller_header.h>
 
+#include <boost/archive/archive_exception.hpp>
 #include <boost/archive/binary_iarchive.hpp>
+#include <chrono>
 #include <containers/glimpse_mpileup.h>
 #include <io/genotype_bam_caller.h>
 #include <io/genotype_reader.h>
 #include <io/genotype_writer.h>
 #include <io/gmap_reader.h>
+#include <io/retry_io.h>
 
 void caller::print_ref_panel_info(const std::string ref_string) {
   vrb.bullet(
@@ -49,6 +52,10 @@ void caller::read_files_and_initialise() {
   // step0: Initialize seed & other
   rng.setSeed(options["seed"].as<int>());
   const int nthreads = options["threads"].as<int>();
+  iterations_per_stage[STAGE_INIT] = 1;
+  iterations_per_stage[STAGE_BURN] = options["burnin"].as<int>();
+  iterations_per_stage[STAGE_MAIN] = options["main"].as<int>();
+
   if (nthreads < 1)
     vrb.error("Error defining the number of threads. Only positive values are "
               "accepted.");
@@ -69,7 +76,8 @@ void caller::read_files_and_initialise() {
     genotype_reader readerG(H, G, V, M, options["sparse-maf"].as<float>(),
                             options.count("input-field-gl"),
                             options.count("impute-reference-only-variants"),
-                            options.count("keep-monomorphic-ref-sites"));
+                            options.count("keep-monomorphic-ref-sites"),
+                            options.count("use-gl-indels"));
     if (options.count("samples-file"))
       readerG.readSamplesFilePloidy(options["samples-file"].as<std::string>());
 
@@ -90,17 +98,15 @@ void caller::read_files_and_initialise() {
     vrb.wait("  * Binary reference panel parsing");
     tac.clock();
     {
-      std::ifstream ifs(reference_filename,
-                        std::ios::binary | std::ios_base::in);
-      if (!ifs.good())
-        vrb.error("Reading binary reference panel file: [" +
-                  reference_filename + "]");
-      boost::archive::binary_iarchive ia(ifs);
-      ia >> H;
-      ia >> V;
-
-      if (H.Ypacked.size() == 0)
-        vrb.error("Problem reading binary file format [v2.0.0]");
+      retry_with_backoff(
+          "reading binary reference panel [" + reference_filename + "]", 3,
+          std::chrono::seconds(1), [&]() -> attempt_result {
+            std::string err_msg;
+            bool non_retryable = false;
+            const bool ok = read_binary_reference_panel(
+                reference_filename, err_msg, non_retryable);
+            return {ok, non_retryable, err_msg};
+          });
 
       vrb.bullet("Binary reference panel parsing [done] (" +
                  stb.str(tac.rel_time() * 1.0 / 1000, 2) + "s)");
@@ -110,7 +116,8 @@ void caller::read_files_and_initialise() {
     genotype_reader readerG(H, G, V, M, H.sparse_maf,
                             options.count("input-field-gl"),
                             options.count("impute-reference-only-variants"),
-                            options.count("keep-monomorphic-ref-sites"));
+                            options.count("keep-monomorphic-ref-sites"),
+                            options.count("use-gl-indels"));
     if (options.count("samples-file"))
       readerG.readSamplesFilePloidy(options["samples-file"].as<std::string>());
 
@@ -170,21 +177,96 @@ void caller::read_files_and_initialise() {
 
   // step5 PBWT
   H.allocatePBWT(options["pbwt-depth"].as<int>(),
-                 options["pbwt-modulo-cm"].as<float>(), V, G, kinit, kpbwt);
+                 options["pbwt-modulo-cm"].as<float>(), V, G, kinit, kpbwt,
+                 use_mu);
 
   tac.clock();
-  std::ifstream load;
-  size_t lastindex = reference_filename.find_last_of(".");
-  std::string load_file = reference_filename.substr(0, lastindex) + ".ser";
-  load.open(load_file.c_str());
-  mupbwt.load(load);
-  load.close();
-  vrb.bullet("mu-PBWT loading (" + stb.str(tac.rel_time() * 1.0 / 1000, 2) +
-             "s)");
+  memset(&mupbwt, 0, sizeof(mupbwt));
+
+  if (use_mu) {
+    size_t lastindex = reference_filename.find_last_of(".");
+    std::string load_file = reference_filename.substr(0, lastindex) + ".ser";
+
+    FILE *fpb = fopen(load_file.c_str(), "rb");
+    if (!fpb) {
+      vrb.error("Impossible to open mu-PBWT index file [" + load_file +
+                "] (--mupbwt was passed but this reference panel has no "
+                "matching .ser - it must be built with split_reference's "
+                "--mupbwt flag)");
+    }
+    setvbuf(fpb, NULL, _IOFBF, 1024 * 1024 * 4);
+
+    pbwt_deserialize(fpb, &mupbwt);
+    fclose(fpb);
+    vrb.bullet("mu-PBWT loading (" + stb.str(tac.rel_time() * 1.0 / 1000, 2) +
+               "s)");
+  }
 
   // step6 list states
   if (use_list)
     H.read_list_states(options["state-list"].as<std::string>());
+
+  if (options.count("checkpoint-file-in") ||
+      options.count("checkpoint-file-out")) {
+    H.update_checksum(crc);
+    G.update_checksum(crc);
+    V.update_checksum(crc);
+  }
+}
+
+bool caller::read_binary_reference_panel(
+    const std::string &reference_filename, std::string &err_msg,
+    bool &non_retryable) {
+  err_msg.clear();
+  non_retryable = false;
+
+  std::ifstream ifs(reference_filename, std::ios::binary | std::ios_base::in);
+  if (!ifs.good()) {
+    err_msg = "could not open file (not good(): eofbit, failbit or badbit "
+              "set, or file not found). Please check the path.";
+    non_retryable = true;
+    return false;
+  }
+
+  try {
+    boost::archive::binary_iarchive ia(ifs);
+    ia >> H;
+    ia >> V;
+  } catch (const boost::archive::archive_exception &e) {
+    std::string hint;
+    switch (e.code) {
+    case boost::archive::archive_exception::unsupported_version:
+    case boost::archive::archive_exception::unsupported_class_version:
+    case boost::archive::archive_exception::unregistered_class:
+    case boost::archive::archive_exception::incompatible_native_format:
+      non_retryable = true;
+      hint = ". This looks like a version mismatch; please ensure you are "
+             "using the same GLIMPSE and boost library versions";
+      break;
+    case boost::archive::archive_exception::invalid_signature:
+      non_retryable = true;
+      hint = ". The file is not a valid GLIMPSE binary reference panel";
+      break;
+    default:
+      break;
+    }
+    err_msg =
+        std::string("exception while parsing boost archive: ") + e.what() + hint;
+    return false;
+  } catch (std::exception &e) {
+    err_msg = std::string("exception while parsing boost archive: ") + e.what();
+    return false;
+  }
+
+  if (H.Ypacked.size() == 0 && !use_mu) {
+    err_msg = "Problem reading binary file format [v2.0.0] (reference panel "
+              "has no stock PBWT — if it was built with --mupbwt-opt, you "
+              "must pass --mupbwt to phase)";
+    non_retryable = true;
+    return false;
+  }
+
+  return true;
 }
 
 void caller::setup_mpileup() {

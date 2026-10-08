@@ -27,8 +27,10 @@
 #define _CALLER_H
 
 #include <utils/otools.h>
+#include <utils/checksum_utils.h>
 
-#include "mu-pbwt/rlpbwt_int.h"
+#include "mupbwt/pbwt.h"
+
 #include <containers/genotype_set.h>
 #include <containers/haplotype_set.h>
 #include <containers/variant_map.h>
@@ -43,6 +45,8 @@ public:
   // COMMAND LINE OPTIONS
   bpo::options_description descriptions;
   bpo::variables_map options;
+  // CHECKSUM FOR CHECKPOINTING
+  checksum crc;
 
   // INTERNAL DATA
   haplotype_set H;
@@ -54,7 +58,7 @@ public:
   bool use_mpsc = false;
   bool use_mu_common = false;
 
-  rlpbwt_int mupbwt;
+  pbwt mupbwt;
 
   InputFormat input_fmt;
   OutputFormat output_fmt;
@@ -70,6 +74,8 @@ public:
 
   // COMPUTE DATA
   int current_stage;
+  int current_iteration;
+  int iterations_per_stage[3];
   stats1D statH;
   stats1D statC;
   std::vector<std::vector<float>> HP0;  // Haplotype posteriors 0
@@ -89,6 +95,7 @@ public:
   void phase_individual(const int, const int);
   void phase_iteration();
   void phase_loop();
+  void increment_iteration();
 
   // PARAMETERS
   void declare_options();
@@ -100,6 +107,8 @@ public:
   // FILE I/O
   void print_ref_panel_info(const std::string ref_string);
   void read_files_and_initialise();
+  bool read_binary_reference_panel(const std::string &reference_filename,
+                                   std::string &err_msg, bool &non_retryable);
   void setup_mpileup();
   void read_BAMs();
 
@@ -108,6 +117,26 @@ public:
 
   // REGION
   void buildCoordinates();
+
+  // CHECKPOINTING
+  void write_checkpoint();
+  void read_checkpoint_if_available();
+
+  template <typename T, class Archive>
+  void confirm_checkpoint_param(Archive &ar, std::string param_name) {
+    T checkpoint_value;
+    ar >> checkpoint_value;
+    T current_value = options[param_name].as<T>();
+    if (checkpoint_value != current_value) {
+      std::stringstream err_str;
+      err_str << "Checkpoint value was run with " << param_name << " set to "
+               << checkpoint_value << " and this run has " << param_name
+               << " set to " << current_value << ".  You must set "
+               << param_name << " to " << checkpoint_value
+               << " in order to use this checkpoint file.";
+      vrb.error(err_str.str());
+    }
+  }
 };
 
 #endif

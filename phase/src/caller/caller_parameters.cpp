@@ -31,7 +31,7 @@ void caller::declare_options() {
   opt_base.add_options()("help", "Produces help message")(
       "seed", bpo::value<int>()->default_value(15052011),
       "Seed of the random number generator")(
-      "threads", bpo::value<int>()->default_value(1), "Number of threads");
+      "threads,T", bpo::value<int>()->default_value(1), "Number of threads");
 
   bpo::options_description opt_input("Input parameters");
   opt_input.add_options()(
@@ -71,6 +71,8 @@ void caller::declare_options() {
       "keep-monomorphic-ref-sites",
       "(Expert setting) Keeps monomorphic markers in the reference panel "
       "(removed by default)")(
+      "checkpoint-file-in", bpo::value<std::string>(),
+      "File to read in checkpoint from")(
       "impute-reference-only-variants",
       "Allows imputation at variants only present in the reference panel. The "
       "use of this option is intended only to allow imputation at sporadic "
@@ -81,9 +83,34 @@ void caller::declare_options() {
       "(Used only if --input-gl is defined) ")(
       "input-field-gl",
       "Only used together with --input-gl. Use FORMAT/GL field instead of "
-      "FORMAT/PL to read genotyope likelihoods")("mupbwt", "use mupbwt")(
+      "FORMAT/PL to read genotyope likelihoods")(
+      "use-gl-indels",
+      "(Expert setting) Only used together with --input-gl. Use genotype "
+      "likelihoods at indels from the VCF/BCF file. By default GLIMPSE "
+      "assumes flat likelihoods at non-SNP variants, as genotype likelihoods "
+      "from low-coverage data are often miscalibrated, potentially affecting "
+      "neighbouring variants.")("mupbwt", "use mupbwt")(
       "mupbwt-smems", "use mupbwt smems")("mupbwt-mpsc", "use mupbwt mpsc")(
-      "mupbwt-common", "use mupbwt only on common variants");
+      "mupbwt-common", "use mupbwt only on common variants")(
+      "mupbwt-min-cm", bpo::value<float>()->default_value(0.01f),
+      "mupbwt minimum genetic-length (cM) for a match to be scored")(
+      "mupbwt-short-cm", bpo::value<float>()->default_value(0.02f),
+      "mupbwt short/medium match genetic-length (cM) boundary")(
+      "mupbwt-medium-cm", bpo::value<float>()->default_value(0.05f),
+      "mupbwt medium/long match genetic-length (cM) boundary")(
+      "mupbwt-max", bpo::value<int>()->default_value(16),
+      "mupbwt max multiplier size smems")(
+      "mupbwt-chunk", bpo::value<int>()->default_value(50),
+      "mupbwt chunk size (bigger -> more memory)")(
+      "mupbwt-depth", bpo::value<int>()->default_value(10),
+      "mupbwt depth size (bigger -> more memory)")(
+      "mupbwt-persistence", bpo::value<bool>()->default_value(true),
+      "use cross-iteration mu-PBWT match persistence")(
+      "mupbwt-persistence-decay", bpo::value<float>()->default_value(0.9f),
+      "mupbwt persistence: per-iteration decay applied to carried-over match scores")(
+      "mupbwt-persistence-floor", bpo::value<float>()->default_value(0.02f),
+      "mupbwt persistence: minimum decayed score below which a carried-over match is dropped")
+  ;
 
   bpo::options_description opt_algo("Model parameters");
   opt_algo.add_options()(
@@ -180,7 +207,9 @@ void caller::declare_options() {
       "(Expert setting) Only used toghether when the output is in BGEN file "
       "format. Specifies the compression of the output BGEN file. If the "
       "output is in the .vcf[.gz]/.bcf format, this value is ignored. Accepted "
-      "values: [no,zlib,zstd]")("log", bpo::value<std::string>(), "Log file");
+      "values: [no,zlib,zstd]")("log", bpo::value<std::string>(), "Log file")(
+      "checkpoint-file-out", bpo::value<std::string>(),
+      "File to save checkpoint info in.");
 
   descriptions.add(opt_base)
       .add(opt_input)
@@ -406,6 +435,15 @@ void caller::check_options() {
 
   if (options["max-depth"].as<int>() < 10)
     vrb.error("Max depth has been set too low [< 10].");
+
+  if (options["mupbwt-depth"].as<int>() > options["max-depth"].as<int>())
+    vrb.error("mupbwt depth must be <= than max depth");
+
+  if (options["mupbwt-short-cm"].as<float>() >= options["mupbwt-medium-cm"].as<float>())
+    vrb.error("mupbwt-short-cm must be < mupbwt-medium-cm");
+  if (options["mupbwt-min-cm"].as<float>() >= options["mupbwt-short-cm"].as<float>())
+    vrb.warning("mupbwt-min-cm is >= mupbwt-short-cm: matches will never fall "
+                "into the 'short' depth bucket");
 }
 
 void caller::verbose_files() {
@@ -536,9 +574,10 @@ void caller::verbose_options() {
     vrb.title("Genotype calling:");
     vrb.bullet("Calling model        : [" +
                options["call-model"].as<std::string>() + "]");
-    vrb.bullet("Indels model         : [" + options.count("call-indels")
-                   ? "Perform calling]"
-                   : "Haplotype scaffold]");
+    vrb.bullet("Indels model         : [" +
+               std::string(options.count("call-indels")
+                               ? "Perform calling]"
+                               : "Haplotype scaffold]"));
 
     vrb.title("BAM/CRAM filters and options:");
     vrb.bullet("Min mapping quality  : [" + stb.str(options["mapq"].as<int>()) +
@@ -571,6 +610,24 @@ void caller::verbose_options() {
                no_yes[options.count("mupbwt-mpsc")] + "]");
     vrb.bullet("mupbwt-common        : [" +
                no_yes[options.count("mupbwt-common")] + "]");
+    vrb.bullet("mupbwt-min-cm        : [" +
+               stb.str(options["mupbwt-min-cm"].as<float>()) + "]");
+    vrb.bullet("mupbwt-short-cm      : [" +
+               stb.str(options["mupbwt-short-cm"].as<float>()) + "]");
+    vrb.bullet("mupbwt-medium-cm     : [" +
+               stb.str(options["mupbwt-medium-cm"].as<float>()) + "]");
+    vrb.bullet("mupbwt-max           : [" +
+               stb.str(options["mupbwt-max"].as<int>()) + "]");
+    vrb.bullet("mupbwt-chunk         : [" +
+               stb.str(options["mupbwt-chunk"].as<int>()) + "]");
+    vrb.bullet("mupbwt-depth         : [" +
+               stb.str(options["mupbwt-depth"].as<int>()) + "]");
+    vrb.bullet("mupbwt-persistence   : [" +
+               no_yes[options["mupbwt-persistence"].as<bool>()] + "]");
+    vrb.bullet("mupbwt-persistence-decay: [" +
+               stb.str(options["mupbwt-persistence-decay"].as<float>()) + "]");
+    vrb.bullet("mupbwt-persistence-floor: [" +
+               stb.str(options["mupbwt-persistence-floor"].as<float>()) + "]");
   }
   if (no_yes[options.count("mupbwt")] == "YES") {
     use_mu = true;

@@ -38,11 +38,10 @@ genotype_reader::genotype_reader(
 		const float _sparse_maf,
 		const bool _inputGL,
 		const bool _impute_refonly,
-		const bool _keep_mono,
-		const bool _use_gl_indels) :
+		const bool _keep_mono) :
 				H(_H), G(_G), V(_V), M(_M),
 				sparse_maf(_sparse_maf),
-				inputGL(_inputGL), impute_refonly(_impute_refonly), n_ref_samples(0), keep_mono(_keep_mono), use_gl_indels(_use_gl_indels)
+				inputGL(_inputGL), impute_refonly(_impute_refonly), n_ref_samples(0), keep_mono(_keep_mono)
 {
 	H.sparse_maf = _sparse_maf;
 }
@@ -245,7 +244,6 @@ void genotype_reader::scanGenotypesCommon(bcf_srs_t * sr, int ref_sr_n /* Refere
 		V.push(new variant (line_ref->pos + 1, std::string(line_ref->d.id), line_ref->d.allele[0], line_ref->d.allele[1], line_type, V.size(), cref, calt, line_type==VCF_SNP && (line_ref->pos != prev_pos)));
 		prev_pos=line_ref->pos;
 	}
-	if (sr->errnum) vrb.error("Error while scanning VCF/BCF file(s): " + std::string(bcf_sr_strerror(sr->errnum)));
 	free(vAC);
 	free(vAN);
 	if (H.n_tot_sites == 0) vrb.error("No variants to be imputed in files");
@@ -332,8 +330,6 @@ void genotype_reader::readTarGenotypes(std::string fmain, int nthreads)
 		else
 		{
 			line_main = bcf_sr_get_line(sr_parse, 0);
-
-			if (bcf_get_variant_types(line_main)!=VCF_SNP && !use_gl_indels) { ++i_site; continue; }
 
 			if (inputGL)
 			{
@@ -540,7 +536,7 @@ void genotype_reader::parseGenotypes(bcf_srs_t * sr) {
 			vrb.error("AC/AN INFO fields in VCF are inconsistent with GT field, update the values in the VCF");
 
 		//Read target data
-		if (nset == 2 && !(bcf_get_variant_types(bcf_sr_get_line(sr, 0))!=VCF_SNP && !use_gl_indels))
+		if (nset == 2)
 		{
 			line_main = bcf_sr_get_line(sr, 0);
 
@@ -642,7 +638,6 @@ void genotype_reader::parseGenotypes(bcf_srs_t * sr) {
 		prog_bar+=prog_step;
 		vrb.progress("  * VCF/BCF parsing", prog_bar);
 	}
-	if (sr->errnum) vrb.error("Error while parsing VCF/BCF file(s): " + std::string(bcf_sr_strerror(sr->errnum)));
 	free(pl_arr_main);
 	free(gl_arr_main);
 	free(gt_arr_ref);
@@ -701,7 +696,6 @@ void genotype_reader::parseRefGenotypes(bcf_srs_t * sr) {
 		prog_bar+=prog_step;
 		vrb.progress("  * Reference panel parsing ", prog_bar);
 	}
-	if (sr->errnum) vrb.error("Error while parsing reference panel: " + std::string(bcf_sr_strerror(sr->errnum)));
 	free(gt_arr_ref);
 
 	// Report
