@@ -68,8 +68,6 @@ BOOST_LIB_IO=../boost/lib/libboost_iostreams.so
 BOOST_LIB_PO=../boost/lib/libboost_program_options.so
 BOOST_LIB_SE=../boost/lib/libboost_serialization.so
 HTSLIB_INC=../htslib
-SDSL_INC=../sdsl/include
-SDSL_LIB=../sdsl/lib
 
 ifeq ($(DNANEXUS),1)
 BOOST_INC = /usr/include

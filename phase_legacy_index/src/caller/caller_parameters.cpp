@@ -70,9 +70,8 @@ void caller::declare_options() {
       "If not specified the prefix of the BAM/CRAM file (--bam-file) is used.")(
       "keep-monomorphic-ref-sites",
       "(Expert setting) Keeps monomorphic markers in the reference panel "
-      "(removed by default)")(
-      "checkpoint-file-in", bpo::value<std::string>(),
-      "File to read in checkpoint from")(
+      "(removed by default)")("checkpoint-file-in", bpo::value<std::string>(),
+                              "File to read in checkpoint from")(
       "impute-reference-only-variants",
       "Allows imputation at variants only present in the reference panel. The "
       "use of this option is intended only to allow imputation at sporadic "
@@ -107,10 +106,11 @@ void caller::declare_options() {
       "mupbwt-persistence", bpo::value<bool>()->default_value(true),
       "use cross-iteration mu-PBWT match persistence")(
       "mupbwt-persistence-decay", bpo::value<float>()->default_value(0.9f),
-      "mupbwt persistence: per-iteration decay applied to carried-over match scores")(
-      "mupbwt-persistence-floor", bpo::value<float>()->default_value(0.02f),
-      "mupbwt persistence: minimum decayed score below which a carried-over match is dropped")
-  ;
+      "mupbwt persistence: per-iteration decay applied to carried-over match "
+      "scores")("mupbwt-persistence-floor",
+                bpo::value<float>()->default_value(0.02f),
+                "mupbwt persistence: minimum decayed score below which a "
+                "carried-over match is dropped");
 
   bpo::options_description opt_algo("Model parameters");
   opt_algo.add_options()(
@@ -436,12 +436,14 @@ void caller::check_options() {
   if (options["max-depth"].as<int>() < 10)
     vrb.error("Max depth has been set too low [< 10].");
 
-  if (options["mupbwt-depth"].as<int>() > options["max-depth"].as<int>())
-    vrb.error("mupbwt depth must be <= than max depth");
+  if (options["mupbwt-depth"].as<int>() > options["pbwt-depth"].as<int>())
+    vrb.error("mupbwt depth must be <= than glimpse depth");
 
-  if (options["mupbwt-short-cm"].as<float>() >= options["mupbwt-medium-cm"].as<float>())
+  if (options["mupbwt-short-cm"].as<float>() >=
+      options["mupbwt-medium-cm"].as<float>())
     vrb.error("mupbwt-short-cm must be < mupbwt-medium-cm");
-  if (options["mupbwt-min-cm"].as<float>() >= options["mupbwt-short-cm"].as<float>())
+  if (options["mupbwt-min-cm"].as<float>() >=
+      options["mupbwt-short-cm"].as<float>())
     vrb.warning("mupbwt-min-cm is >= mupbwt-short-cm: matches will never fall "
                 "into the 'short' depth bucket");
 }

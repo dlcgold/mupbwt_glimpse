@@ -12,8 +12,7 @@ CXXFLAG=-O3 -mavx2 -mfma -msse3 -Wno-ignored-attributes
 LDFLAG=-O3
 LDFLAG += \
   -Wl,-rpath,'$$ORIGIN/../../boost/lib' \
-  -Wl,-rpath,'$$ORIGIN/../../htslib' \
-  -Wl,-rpath,'$$ORIGIN/../../sdsl/lib'
+  -Wl,-rpath,'$$ORIGIN/../../htslib'
 
 #CXXFLAG=-O0 -g -mavx2 -mfma -Wno-ignored-attributes
 #LDFLAG=-O0

@@ -26,14 +26,14 @@ $(PROJECTS):
 
 
 $(HTSLIB):
-	wget https://github.com/samtools/htslib/releases/download/1.16/htslib-1.16.tar.bz2
+	wget -O htslib-1.16.tar.bz2 https://github.com/samtools/htslib/releases/download/1.16/htslib-1.16.tar.bz2
 	tar -xf htslib-1.16.tar.bz2
 	mv htslib-1.16 htslib
-	cd htslib && make
+	cd htslib && ./configure --enable-libcurl --enable-gcs --enable-s3 && $(MAKE)
 	rm -f htslib-1.16.tar.bz2
 
 $(BOOST_LIBS):
-	wget https://archives.boost.io/release/1.73.0/source/boost_1_73_0.tar.bz2
+	wget -O boost_1_73_0.tar.bz2 https://archives.boost.io/release/1.73.0/source/boost_1_73_0.tar.bz2
 	tar -xjf boost_1_73_0.tar.bz2
 	cd boost_1_73_0 && \
 		./bootstrap.sh \
