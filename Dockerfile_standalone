@@ -34,10 +34,10 @@ RUN wget -q https://github.com/simd-everywhere/simde/archive/refs/tags/v${SIMDE_
   && tar -xzf /tmp/simde.tar.gz -C /usr/include --strip-components=1 simde-${SIMDE_VERSION}/simde \
   && rm -f /tmp/simde.tar.gz
 
-# clone the project (branch "c" by default). .git is kept: the sub-makefiles stamp
+# clone the project (branch "c_cm" by default). .git is kept: the sub-makefiles stamp
 # the binaries with `git rev-parse HEAD`.
 ARG REPO_URL=https://github.com/dlcgold/mupbwt_glimpse.git
-ARG GIT_REF=c
+ARG GIT_REF=c_cm
 WORKDIR /app
 RUN git clone --branch "${GIT_REF}" --single-branch --depth 1 "${REPO_URL}" . \
   && git log -1 --oneline
