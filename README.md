@@ -63,18 +63,18 @@ use `--mupbwt` to build mu-PBWT alongside stock:
 
 Add `--mupbwt` to phase using the mu-PBWT. Optional flags:
 
-| Flag                         | Default | Effect                                                                           |
-| ---------------------------- | ------- | --------------------------------------------------------------------------------- |
-| `--mupbwt-common`            | off     | restrict mu-PBWT to common variants — must match how the reference was built      |
-| `--mupbwt-min-cm`            | 0.01    | floor (cM): matches shorter than this are discarded entirely                      |
-| `--mupbwt-short-cm`          | 0.02    | short/medium match genetic-length (cM) boundary (must stay < `--mupbwt-medium-cm`)|
-| `--mupbwt-medium-cm`         | 0.05    | medium/long match genetic-length (cM) boundary                                    |
-| `--mupbwt-max`               | 16      | multiplier for the max exact-match steps (bigger = more memory)                   |
-| `--mupbwt-chunk`             | 50      | site-scan chunk size (bigger = more memory)                                       |
-| `--mupbwt-depth`             | 10      | selection depth (must be <= `--max-depth`, bigger = more memory)                  |
-| `--mupbwt-persistence`       | true    | carry over decayed matches from the previous iteration                            |
-| `--mupbwt-persistence-decay` | 0.9     | per-iteration decay applied to carried-over match scores                          |
-| `--mupbwt-persistence-floor` | 0.02    | drop a carried-over match once its decayed score falls below this                 |
+| Flag                         | Default | Effect                                                                             |
+| ---------------------------- | ------- | ---------------------------------------------------------------------------------- |
+| `--mupbwt-common`            | off     | restrict mu-PBWT to common variants — must match how the reference was built       |
+| `--mupbwt-min-cm`            | 0.01    | floor (cM): matches shorter than this are discarded entirely                       |
+| `--mupbwt-short-cm`          | 0.02    | short/medium match genetic-length (cM) boundary (must stay < `--mupbwt-medium-cm`) |
+| `--mupbwt-medium-cm`         | 0.05    | medium/long match genetic-length (cM) boundary                                     |
+| `--mupbwt-max`               | 16      | multiplier for the max exact-match steps (bigger = more memory)                    |
+| `--mupbwt-chunk`             | 50      | site-scan chunk size (bigger = more memory)                                        |
+| `--mupbwt-depth`             | 10      | selection depth (must be <= `--max-depth`, bigger = more memory)                   |
+| `--mupbwt-persistence`       | true    | carry over decayed matches from the previous iteration                             |
+| `--mupbwt-persistence-decay` | 0.9     | per-iteration decay applied to carried-over match scores                           |
+| `--mupbwt-persistence-floor` | 0.02    | drop a carried-over match once its decayed score falls below this                  |
 
 Match length is scored in centiMorgans rather than site counts, so these thresholds are
 density-invariant.
@@ -82,11 +82,11 @@ Using more memory (`--mupbwt-max`/`--mupbwt-chunk`/`--mupbwt-depth`) generally i
 
 ## Additional binaries
 
-| Binary                                   | Purpose                                                                                   |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `phase_legacy_index` / `split_reference_legacy_index` | non-SoA mu-PBWT `.ser` format, for reusing indexes built before the SoA layout change |
-| `build_ser_from_bin`                     | build a mu-PBWT `.ser` index from an existing `.bin` reference, without re-reading the BCF |
-| `build_ser_from_bcf`                     | build a mu-PBWT `.ser` index directly from a reference BCF                                 |
+| Binary                                                | Purpose                                                                                    |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `phase_legacy_index` / `split_reference_legacy_index` | non-SoA mu-PBWT `.ser` format, for reusing indexes built before the SoA layout change      |
+| `build_ser_from_bin`                                  | build a mu-PBWT `.ser` index from an existing `.bin` reference, without re-reading the BCF |
+| `build_ser_from_bcf`                                  | build a mu-PBWT `.ser` index directly from a reference BCF                                 |
 
 ## Docker
 
@@ -135,3 +135,5 @@ docker run --rm -v "$PWD:/data" -w /data glimpse2-mupbwt -c "
   --bins 0.00000 0.00100 0.00200 0.00500 0.01000 0.05000 0.10000 0.20000 0.50000 \
   --thread 4 --gt-val"
 ```
+
+`Dockerfile_standalone` builds the same image without a local checkout by cloning the repo from GitHub: `docker build -f Dockerfile_standalone --load -t glimpse2-mupbwt .`
