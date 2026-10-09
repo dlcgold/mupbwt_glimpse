@@ -65,7 +65,6 @@ Add `--mupbwt` to phase using the mu-PBWT. Optional flags:
 
 | Flag                         | Default | Effect                                                                             |
 | ---------------------------- | ------- | ---------------------------------------------------------------------------------- |
-| `--mupbwt-common`            | off     | restrict mu-PBWT to common variants — must match how the reference was built       |
 | `--mupbwt-min-cm`            | 0.01    | floor (cM): matches shorter than this are discarded entirely                       |
 | `--mupbwt-short-cm`          | 0.02    | short/medium match genetic-length (cM) boundary (must stay < `--mupbwt-medium-cm`) |
 | `--mupbwt-medium-cm`         | 0.05    | medium/long match genetic-length (cM) boundary                                     |
