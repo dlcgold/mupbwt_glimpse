@@ -122,8 +122,7 @@ docker build --load -t glimpse2-mupbwt .
 ```
 
 On `PATH` inside the image: the four mu-PBWT executables and the upstream `GLIMPSE2_chunk`, `GLIMPSE2_ligate`,
-`GLIMPSE2_concordance`. The upstream `phase` and `split_reference` are not on `PATH` (same names as the
-mu-PBWT ones); call them as `/app/original/phase/bin/GLIMPSE2_phase` and `/app/original/split_reference/bin/GLIMPSE2_split_reference`.
+`GLIMPSE2_concordance`.
 
 ```shell
 docker run --rm -v "$PWD:/data" -w /data glimpse2-mupbwt -c "
