@@ -28,6 +28,12 @@ typedef struct {
   uint32_t n_sites;
   column_vec cols;
   phi phi;
+  /* Mode-0-only: jump-distance threshold for choosing the backward LF-walk
+   * over the Phi-based scan when computing a match length after a
+   * mismatch (see pbwt_advance_site). Unused (never read) by the streamed
+   * modes, which never have the full query panel in RAM. Set by
+   * pbwt_query() from its thr90 argument; not populated by the streamed
+   * query paths. */
   uint32_t thr90;
 } pbwt;
 
@@ -104,8 +110,18 @@ match_vec compute_smem(const pbwt *pbwt, const c_arr *q, size_t q_base,
                        uint32_t q_n);
 
 int_vec get_haps_ms(const pbwt *pbwt, uint32_t p, uint32_t l, uint32_t c);
+/* Empirically chosen (see thr90_sweep tuning experiment: a 9-panel x
+ * 9-threshold sweep across panel_scaling/query_scaling/scale_stress,
+ * cross-checked with a contention-free sequential spot-check) to minimize
+ * worst-case regret vs. the per-panel optimum across widely varying panel
+ * geometries. Still just a single fixed constant -- a strong correlation
+ * with site count (r~=0.98 at fixed haplotype count) suggests a
+ * size-adaptive default could do better, but that needs a dedicated
+ * follow-up study before committing to a formula. */
 #define MUPBWT_THR90_DEFAULT 60
 
+/* thr90 < 0 means "use MUPBWT_THR90_DEFAULT"; only meaningful for mode 0
+ * (the streamed query modes never use this threshold at all). */
 void pbwt_query(const char *pbwt_filename, const char *filename, int threads,
                 int thr90);
 void pbwt_query_m(const char *pbwt_filename, const char *filename, int threads);

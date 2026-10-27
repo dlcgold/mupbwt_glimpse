@@ -1,4 +1,5 @@
 #include "pbwt.h"
+#include <malloc.h>
 #include "c_arr.h"
 #include "kvec.h"
 #include "match.h"
@@ -588,6 +589,53 @@ uint32_t fl(const pbwt_col *col, uint32_t i, uint32_t r) {
   }
 }
 
+void pbwt_build_scan_view(pbwt *pbwt, pbwt_scan_view &view, bool release_uv) {
+  const size_t n_cols = pbwt->cols.n;
+  size_t pool_n = 0;
+  for (size_t i = 0; i < n_cols; i++) {
+    const pbwt_col *col = &pbwt->cols.a[i];
+    pool_n++;
+    if (col->p.n > 0 && col->p.n <= PBWT_SCAN_RUNS && col->uv.n > 0)
+      pool_n += 2 * col->p.n - 1;
+    else if (col->p.n > PBWT_SCAN_RUNS)
+      pool_n += (col->p.n + PBWT_SCAN_SAMPLE - 1) / PBWT_SCAN_SAMPLE;
+  }
+  view.off.assign(n_cols + 1, 0);
+  view.pool.assign(pool_n, 0);
+  size_t o = 0;
+  for (size_t i = 0; i < n_cols; i++) {
+    pbwt_col *col = &pbwt->cols.a[i];
+    const uint32_t p_n = (uint32_t)col->p.n;
+    const bool small = p_n > 0 && p_n <= PBWT_SCAN_RUNS && col->uv.n > 0;
+    view.off[i] = (uint32_t)o;
+    view.pool[o++] = (small ? p_n : 0) | ((uint32_t)get_ns(col->zero, 0) << 8) |
+                     ((uint32_t)(col->e_pa.n <= 15) << 9);
+    if (!small) {
+      if (p_n > PBWT_SCAN_RUNS) {
+        uint32_t ns = (p_n + PBWT_SCAN_SAMPLE - 1) / PBWT_SCAN_SAMPLE;
+        view.pool[o - 1] |= ns << 10;
+        for (uint32_t k = 0; k < ns; k++)
+          view.pool[o + k] = c_arr_get(&col->p, k * PBWT_SCAN_SAMPLE);
+        o += ns;
+      }
+      continue;
+    }
+    for (uint32_t r = 0; r < p_n; r++) {
+      uint32_t s = c_arr_get(&col->p, r);
+      view.pool[o + r] = fl(col, s, r) - s;
+      if (r > 0)
+        view.pool[o + p_n + r - 1] = s;
+    }
+    o += 2 * p_n - 1;
+    if (release_uv) {
+      free(col->uv.data);
+      col->uv.data = NULL;
+      col->uv.n = 0;
+    }
+  }
+  view.off[n_cols] = (uint32_t)o;
+}
+
 uint32_t lf(const column_vec *cols, uint32_t col_idx, uint32_t i) {
   if (col_idx == 0)
     return 0;
@@ -630,7 +678,7 @@ uint32_t get_l(const pbwt *pbwt, const uint8_t *q, uint32_t i, uint32_t c_i) {
   const pbwt_col *all_cols = pbwt->cols.a;
 
   while (t_i >= 0) {
-    __builtin_prefetch(&all_cols[t_i - 1], 0, 3);
+    pbwt_prefetch_cols_back(all_cols, t_i);
     const pbwt_col *col = &all_cols[t_i];
 
     uint32_t r = get_r_with_hint(col, t_lf, last_r);
@@ -741,13 +789,14 @@ uint32_t get_l_u(const pbwt *pbwt, uint32_t p, uint32_t n, uint32_t c) {
   const uint32_t sentinel = pbwt->n_haps;
 
   for (uint32_t i = 0; i < n; i++) {
-    uint32_t t_l = phi_l(&pbwt->phid, t_p, c);
+    uint32_t t_l;
+    uint32_t n_p = phi_f_l(&pbwt->phid, t_p, c, &t_l);
     if (t_l < m)
       m = t_l;
     if (m == 0)
       return 0;
 
-    t_p = phi_f(&pbwt->phid, t_p, c);
+    t_p = n_p;
 
     if (t_p >= sentinel)
       break;
@@ -765,7 +814,7 @@ uint32_t get_l_d(const pbwt *pbwt, uint32_t p, uint32_t n, uint32_t c) {
     if (next_p >= sentinel)
       break;
 
-    uint32_t t_l = phi_l(&pbwt->phid, next_p, c);
+    uint32_t t_l = phi_l_fast(&pbwt->phid, next_p, c);
 
     if (t_l < m)
       m = t_l;

@@ -122,6 +122,94 @@ get_r_with_hint(const pbwt_col *col, uint32_t i, uint32_t hint) {
 
   return get_r(col, i);
 }
+#define PBWT_SCAN_RUNS 15
+typedef struct {
+  std::vector<uint32_t> off;
+  std::vector<uint32_t> pool;
+} pbwt_scan_view;
+
+void pbwt_build_scan_view(pbwt *pbwt, pbwt_scan_view &view, bool release_uv);
+
+static inline __attribute__((always_inline)) uint32_t
+scan_hdr_n(uint32_t h) {
+  return h & 0xff;
+}
+static inline __attribute__((always_inline)) uint32_t
+scan_hdr_ns0(uint32_t h) {
+  return (h >> 8) & 1;
+}
+static inline __attribute__((always_inline)) uint32_t
+scan_hdr_rare15(uint32_t h) {
+  return (h >> 9) & 1;
+}
+#define PBWT_SCAN_SAMPLE 16
+static inline __attribute__((always_inline)) uint32_t
+scan_hdr_samples(uint32_t h) {
+  return h >> 10;
+}
+
+static inline __attribute__((always_inline)) uint32_t
+get_r_sampled(const pbwt_col *col, const uint32_t *v, uint32_t i) {
+  const uint32_t ns = scan_hdr_samples(v[0]);
+  const uint32_t *samp = v + 1;
+  uint32_t lo = 0, len = ns;
+  while (len > 1) {
+    uint32_t half = len >> 1;
+    lo = (samp[lo + half] <= i) ? lo + half : lo;
+    len -= half;
+  }
+  const uint32_t n = (uint32_t)col->p.n;
+  uint32_t pos = lo * PBWT_SCAN_SAMPLE;
+  uint32_t end = pos + PBWT_SCAN_SAMPLE;
+  if (end > n)
+    end = n;
+  uint32_t cnt = end - pos - 1;
+  while (cnt > 0) {
+    uint32_t half = (cnt + 1) >> 1;
+    if (c_arr_get(&col->p, pos + half) <= i) {
+      pos += half;
+      cnt -= half;
+    } else {
+      cnt = half - 1;
+    }
+  }
+  return pos;
+}
+
+#define PBWT_PF_STRUCT 16
+#define PBWT_PF_DATA 8
+static inline __attribute__((always_inline)) void
+pbwt_prefetch_cols(const pbwt_col *cols, size_t i, size_t n) {
+  if (i + PBWT_PF_STRUCT < n) {
+    const char *a = (const char *)&cols[i + PBWT_PF_STRUCT];
+    __builtin_prefetch(a, 0, 3);
+    __builtin_prefetch(a + 64, 0, 3);
+    __builtin_prefetch(a + 128, 0, 3);
+    __builtin_prefetch(a + sizeof(pbwt_col) - 1, 0, 3);
+  }
+  if (i + PBWT_PF_DATA < n) {
+    const pbwt_col *c = &cols[i + PBWT_PF_DATA];
+    __builtin_prefetch(c->p.data, 0, 3);
+    __builtin_prefetch(c->uv.data, 0, 3);
+  }
+}
+
+static inline __attribute__((always_inline)) void
+pbwt_prefetch_cols_back(const pbwt_col *cols, int32_t i) {
+  if (i >= PBWT_PF_STRUCT) {
+    const char *a = (const char *)&cols[i - PBWT_PF_STRUCT];
+    __builtin_prefetch(a, 0, 3);
+    __builtin_prefetch(a + 64, 0, 3);
+    __builtin_prefetch(a + 128, 0, 3);
+    __builtin_prefetch(a + sizeof(pbwt_col) - 1, 0, 3);
+  }
+  if (i >= PBWT_PF_DATA) {
+    const pbwt_col *c = &cols[i - PBWT_PF_DATA];
+    __builtin_prefetch(c->p.data, 0, 3);
+    __builtin_prefetch(c->uv.data, 0, 3);
+  }
+}
+
 uint32_t fl(const pbwt_col *col, uint32_t i, uint32_t r);
 uint32_t lf(const column_vec *cols, uint32_t col_idx, uint32_t i);
 

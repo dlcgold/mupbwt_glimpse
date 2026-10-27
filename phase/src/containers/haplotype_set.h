@@ -50,6 +50,7 @@ public:
   std::vector<std::vector<int>> SvarTar;   // Rare alleles per variant
   std::vector<std::vector<int>> SindTarGL; // Rare alleles per ind from GLs
   std::vector<float> cm_pos;
+  pbwt_scan_view mu_scan_view;
 
   // PLOIDY
   int fploidy; // Format ploidy field, to indicate the ploidy in the sample
@@ -63,7 +64,8 @@ public:
   // PBWT
   int pbwt_depth;
   float pbwt_modulo_cm;
-  std::vector<int> pbwt_array_V;
+  std::vector<uint64_t> pbwt_col_bits;
+  std::vector<int> pbwt_col_prefix;
 
   // FM
   std::vector<int> pbwt_index;
@@ -152,10 +154,6 @@ public:
   void matchHapsFromCompressedPBWTSmall(const variant_map &V,
                                         const bool main_iteration);
 
-  // void matchHapsFromMuPBWT(rlpbwt_int &mupbwt, const variant_map &V, const
-  // bool main_iteration, std::vector<int> &uncommon_sites,
-  //                          std::vector<std::string> &queries);
-
   void matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
                            const bool main_iteration,
                            std::vector<int> &uncommon_sites, uint8_t *q_p,
@@ -163,17 +161,10 @@ public:
   void matchHapsFromMuPBWT(pbwt &mupbwt, const variant_map &V,
                            const bool main_iteration,
                            const genotype_set &G, uint32_t n_sites, int threads,
-                           haplotype_set &H, bool common, float min_cm, float short_cm,
+                           haplotype_set &H, float min_cm, float short_cm,
                            float medium_cm, int ma, int mc, int md, bool persistence_enabled,
-                           double persistence_decay, double persistence_floor);
-  // void matchHapsFromMuPBWTSMEMS(rlpbwt_int &mupbwt, const variant_map &V,
-  // const bool main_iteration, std::vector<int> &uncommon_sites,
-  //                          std::vector<std::string> &queries);
-  //
-  //
-  // void matchHapsFromMuPBWTMPSC(rlpbwt_int &mupbwt, const variant_map &V,
-  // const bool main_iteration, std::vector<int> &uncommon_sites,
-  //                          std::vector<std::string> &queries);
+                           double persistence_decay, double persistence_floor,
+                           int batch_cap);
 
   std::vector<unsigned int> extract_random(const std::vector<unsigned int> &,
                                            std::size_t);
@@ -198,6 +189,12 @@ public:
                            const int ref_rac_l, const int prev_ref_rac_l);
 
   void select_rare_pd_fg(const int k, const int ref_rac_l);
+
+  inline int pbwt_rank(const int x) const {
+    const int w = x >> 6;
+    return pbwt_col_prefix[w] +
+           __builtin_popcountll(pbwt_col_bits[w] & ((1ULL << (x & 63)) - 1));
+  }
 
   void updateHaplotypesTot(const genotype_set &G);
 };

@@ -89,6 +89,38 @@ static inline __attribute__((always_inline)) uint32_t phi_l(const phi *p,
   return l_val - (e_c - c);
 }
 
+static inline __attribute__((always_inline)) uint32_t
+phi_f_l(const phi *p, uint32_t pa_v, uint32_t c, uint32_t *l_out) {
+  uint32_t pos_base = p->phi_pos_off[pa_v];
+  uint32_t pos_len = p->phi_pos_off[pa_v + 1] - pos_base;
+  uint32_t supp_base = p->phi_supp_off[pa_v];
+  uint32_t supp_len = p->phi_supp_off[pa_v + 1] - supp_base;
+
+  uint32_t t_c = c_arr_rank_range(&p->phi_pos, pos_base, pos_len, c);
+  t_c -= (t_c == supp_len) & (t_c > 0);
+  uint32_t f = (supp_len == 0) ? 0 : c_arr_get(&p->phi_supp, supp_base + t_c);
+
+  if (c == 0 || f == p->n_h) {
+    *l_out = 0;
+    return f;
+  }
+  uint32_t e_c = (t_c < pos_len) ? c_arr_get(&p->phi_pos, pos_base + t_c)
+                                 : p->n_w - 1;
+  uint32_t l_val =
+      (supp_len == 0)
+          ? 0
+          : c_arr_get(&p->phi_l_supp, p->phi_l_supp_off[pa_v] + t_c);
+  *l_out = l_val - (e_c - c);
+  return f;
+}
+
+static inline __attribute__((always_inline)) uint32_t
+phi_l_fast(const phi *p, uint32_t pa_v, uint32_t c) {
+  uint32_t l;
+  phi_f_l(p, pa_v, c, &l);
+  return l;
+}
+
 static double phi_size_mb(const phi *p) {
 
   if (!p)

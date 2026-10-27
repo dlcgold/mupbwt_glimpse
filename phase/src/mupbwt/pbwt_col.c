@@ -220,10 +220,9 @@ int pbwt_col_deserialize(FILE *fp, pbwt_col *col) {
   col->e_pa = *tmp;
   free(tmp);
 
-  if (!(tmp = c_arr_deserialize(fp)))
+  if (c_arr_skip(fp) != 0)
     return -1;
-  col->b_da = *tmp;
-  free(tmp);
+  col->b_da = (c_arr){.data = NULL, .n = 0, .bits = 0};
 
   if (fread(&col->zero, sizeof(bool), 1, fp) != 1)
     return -1;

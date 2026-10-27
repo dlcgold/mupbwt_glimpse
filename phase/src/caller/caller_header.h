@@ -56,7 +56,6 @@ public:
   bool use_mu = false;
   bool use_smems = false;
   bool use_mpsc = false;
-  bool use_mu_common = false;
 
   pbwt mupbwt;
 

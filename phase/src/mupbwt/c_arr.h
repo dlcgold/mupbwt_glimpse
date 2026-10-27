@@ -83,6 +83,7 @@ static void print_c_arr_as_penta(const c_arr *a) {
 
 int c_arr_serialize(const c_arr *arr, FILE *fp);
 c_arr *c_arr_deserialize(FILE *fp);
+int c_arr_skip(FILE *fp);
 int c_arr_serialize_gz(gzFile fp, const c_arr *arr);
 int c_arr_deserialize_inplace_gz(gzFile fp, c_arr *arr);
 

@@ -38,6 +38,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <math.h>
+#include <unordered_set>
 #include <objects/genotype.h>
 #include <ostream>
 #include <random>
@@ -280,7 +281,8 @@ void haplotype_set::allocatePBWT(const int _pbwt_depth,
 
   pbwt_array_A = std::vector<int>(n_ref_haps);
   pbwt_array_B = std::vector<int>(n_ref_haps);
-  pbwt_array_V = std::vector<int>(n_ref_haps + 1);
+  pbwt_col_bits = std::vector<uint64_t>(n_ref_haps / 64 + 1);
+  pbwt_col_prefix = std::vector<int>(n_ref_haps / 64 + 1);
   pbwt_index = std::vector<int>(n_tar_haps, 0);
   f_k = std::vector<int>(n_tar_haps, 0);
   g_k = std::vector<int>(n_tar_haps, n_ref_haps);
@@ -355,12 +357,72 @@ void haplotype_set::allocatePBWT(const int _pbwt_depth,
              " / n_stored=" + std::to_string(nstored));
 }
 
+class mu_score_map {
+  static constexpr uint32_t EMPTY = 0xFFFFFFFFu;
+  std::vector<uint32_t> keys;
+  std::vector<double> vals;
+  std::vector<uint32_t> used;
+  uint32_t mask;
+  uint32_t shift;
+
+  void init(uint32_t cap_log2) {
+    keys.assign((size_t)1 << cap_log2, EMPTY);
+    vals.assign((size_t)1 << cap_log2, 0.0);
+    mask = (1u << cap_log2) - 1;
+    shift = 32 - cap_log2;
+  }
+
+  void grow() {
+    std::vector<uint32_t> old_used;
+    old_used.swap(used);
+    std::vector<uint32_t> old_keys;
+    std::vector<double> old_vals;
+    old_keys.swap(keys);
+    old_vals.swap(vals);
+    init(33 - shift);
+    for (uint32_t s : old_used)
+      (*this)[old_keys[s]] = old_vals[s];
+  }
+
+public:
+  mu_score_map() { init(12); }
+
+  double &operator[](uint32_t h) {
+    uint32_t s = (h * 2654435761u) >> shift;
+    while (keys[s] != EMPTY) {
+      if (keys[s] == h)
+        return vals[s];
+      s = (s + 1) & mask;
+    }
+    if ((used.size() + 1) * 2 > keys.size()) {
+      grow();
+      return (*this)[h];
+    }
+    keys[s] = h;
+    used.push_back(s);
+    return vals[s];
+  }
+
+  void clear() {
+    for (uint32_t s : used) {
+      keys[s] = EMPTY;
+      vals[s] = 0.0;
+    }
+    used.clear();
+  }
+};
+
+static size_t mu_batch_size(size_t n, int threads, int cap) {
+  size_t b = n / ((size_t)std::max(threads, 1) * 4);
+  return std::max<size_t>(1, std::min<size_t>(b, (size_t)std::max(cap, 1)));
+}
+
 void haplotype_set::matchHapsFromMuPBWT(
     pbwt &mupbwt, const variant_map &V, const bool main_iteration,
     const genotype_set &G, uint32_t n_sites, int threads, haplotype_set &H,
-    bool common, float min_cm, float short_cm, float medium_cm, int ma, int mc, int md,
+    float min_cm, float short_cm, float medium_cm, int ma, int mc, int md,
     bool persistence_enabled, double persistence_decay,
-    double persistence_floor) {
+    double persistence_floor, int batch_cap) {
   omp_set_num_threads(threads);
 
   if (Kpbwt == 0 || Kpbwt >= n_ref_haps) {
@@ -392,368 +454,454 @@ void haplotype_set::matchHapsFromMuPBWT(
   uint32_t n = G.vecG.size() * 2;
   if (prev_selected.size() != n)
     prev_selected.assign(n, {});
-  // const uint32_t MAX_EXACT_STEPS = K * 4;
   const uint32_t MAX_EXACT_STEPS = K * ma;
   double sum_smem_time = 0.0;
   double sum_rank_time = 0.0;
-  size_t c_rare = 0;
-  size_t cn_rare = 0;
+  std::vector<uint8_t> site_minor;
+  if (mu_scan_view.off.empty()) {
+    pbwt_build_scan_view(&mupbwt, mu_scan_view, true);
+  }
+  site_minor.assign(n_sites, 2);
+  for (size_t s = 0; s < n_sites; ++s)
+    if (!flag_common[s])
+      site_minor[s] = major_alleles[s] ? 0 : 1;
   size_t diag_sel_sum = 0;
   size_t diag_sel_max = 0;
   size_t diag_pool_sum = 0;
   size_t diag_pool_max = 0;
+  struct mu_query_ctx {
+    mu_score_map haplo_score;
+    std::vector<uint32_t> active_haplos;
+    std::vector<std::vector<int>> local_states;
+    std::vector<bool> rescued_ids;
+    std::vector<int> local_rescued;
+    std::vector<uint8_t> query;
+    std::vector<int> q_rare;
+    size_t q;
+    uint32_t p, p_p, l, p_l;
+    uint32_t c_p, c_i, c_r, p_i;
+    uint8_t c_s, p_s;
+  };
+  const size_t n_batch = mu_batch_size(n, threads, batch_cap);
+  const size_t n_blocks = (n + n_batch - 1) / n_batch;
 #pragma omp parallel num_threads(threads) default(none)                        \
     shared(mupbwt, G, n, n_sites, chunk_size, pbwt_depth, pbwt_states,         \
                tar_hapid2ind, thr_min_cm, thr_short_cm, thr_medium_cm,         \
                region_cm, n_haps, K,       \
-               sum_smem_time, sum_rank_time, MAX_EXACT_STEPS, H, common,       \
-               c_rare, cn_rare, diag_sel_sum, diag_sel_max, diag_pool_sum,     \
+               sum_smem_time, sum_rank_time, MAX_EXACT_STEPS, H,               \
+               diag_sel_sum, diag_sel_max, diag_pool_sum,     \
                diag_pool_max, prev_selected, persistence_enabled,              \
-               persistence_decay, persistence_floor)
+               persistence_decay, persistence_floor, site_minor, n_batch,      \
+               n_blocks)
   {
-    std::vector<double> haplo_score(n_haps, 0.0);
-    std::vector<uint32_t> active_haplos;
-    active_haplos.reserve(2000);
-    std::vector<std::vector<int>> local_states(pbwt_depth);
-    std::vector<bool> rescued_ids(n_haps, false);
+    std::vector<mu_query_ctx> ctx(std::min(n_batch, (size_t)n));
+    for (auto &Q : ctx) {
+      Q.active_haplos.reserve(2000);
+      Q.local_states.resize(pbwt_depth);
+      Q.rescued_ids.assign(n_haps, false);
+      Q.query.assign(n_sites, 0);
+    }
 
-    std::vector<uint8_t> local_query_buffer(n_sites);
+    pbwt_col *all_cols = mupbwt.cols.a;
+    const bool use_view = !mu_scan_view.off.empty();
+    const uint32_t *v_off = mu_scan_view.off.data();
+    const uint32_t *v_pool = mu_scan_view.pool.data();
 
-    double thread_smem_time = 0.0;
-    double thread_rank_time = 0.0;
-
-#pragma omp for schedule(dynamic)
-    for (size_t q = 0; q < n; ++q) {
-      uint32_t target_ind = tar_hapid2ind[q];
-
-      for (uint32_t h : active_haplos) {
-        haplo_score[h] = 0.0;
-        rescued_ids[h] = false;
+    auto get_l_ref = [&](mu_query_ctx &Q, uint32_t end_site,
+                         uint32_t h) -> uint32_t {
+      const std::vector<int> &q_rare = Q.q_rare;
+      const uint8_t *query = Q.query.data();
+      const int e = (int)end_site;
+      const std::vector<int> &sh = ShapRef[h];
+      int a = (int)(std::upper_bound(q_rare.begin(), q_rare.end(), e) - q_rare.begin()) - 1;
+      int b = (int)(std::upper_bound(sh.begin(), sh.end(), e) - sh.begin()) - 1;
+      while (a >= 0 && b >= 0 && q_rare[a] == sh[b]) {
+        a--;
+        b--;
       }
-      active_haplos.clear();
-      for (auto &vec : local_states) {
-        vec.clear();
-      }
-
-      size_t ind_idx = q / 2;
-      bool is_h1 = (q % 2 != 0);
-      const auto &genotype_ptr = G.vecG[ind_idx];
-      const auto &source_H = is_h1 ? genotype_ptr->H1 : genotype_ptr->H0;
-
-      if (!common) {
-        for (size_t s = 0; s < n_sites; ++s) {
-          local_query_buffer[s] = source_H[s] ? 1 : 0;
+      int mis = std::max(a >= 0 ? q_rare[a] : -1, b >= 0 ? sh[b] : -1);
+      int c = (int)(std::upper_bound(common2tot.begin(), common2tot.end(), e) - common2tot.begin()) - 1;
+      const size_t row_bytes = HvarRef.n_cols >> 3;
+      const unsigned char *hcol = HvarRef.bytes + (h >> 3);
+      for (; c >= 0 && common2tot[c] > mis; c--) {
+        if (c >= 8)
+          __builtin_prefetch(hcol + (size_t)(c - 8) * row_bytes, 0, 0);
+        if (HvarRef.get(c, h) != query[common2tot[c]]) {
+          mis = common2tot[c];
+          break;
         }
+      }
+      return (uint32_t)(e - mis);
+    };
+    auto compute_match_cm = [&](uint32_t end_col, uint32_t len_sites) -> double {
+      if (len_sites == 0)
+        return 0.0;
+      uint32_t start_col = (end_col + 1 > len_sites) ? (end_col + 1 - len_sites) : 0;
+      return std::max(0.0f, cm_pos[end_col] - cm_pos[start_col]);
+    };
+    auto apply_score_inline = [&](mu_query_ctx &Q, uint32_t start_p,
+                                  uint32_t match_len, uint32_t col,
+                                  double match_cm, bool last = false) {
+      mu_score_map &haplo_score = Q.haplo_score;
+      std::vector<uint32_t> &active_haplos = Q.active_haplos;
+      double contrib = match_cm / region_cm;
+      double weight = contrib;
+      uint32_t depth_limit = 0;
+      bool exact_only = false;
+
+      if (last) {
+        exact_only = true;
+        depth_limit = K * 2;
       } else {
-        for (size_t s = 0; s < n_sites; ++s) {
-          if (H.flag_common[s]) {
-            local_query_buffer[s] = source_H[s] ? 1 : 0;
-          }
+        if (match_cm < thr_short_cm) {
+          depth_limit = K;
+          exact_only = true;
+        } else if (match_cm < thr_medium_cm) {
+          depth_limit = K * 2;
+          exact_only = true;
+        } else {
+          exact_only = true;
+          depth_limit = MAX_EXACT_STEPS;
         }
       }
 
-      const uint8_t *query = local_query_buffer.data();
-      uint32_t p = 0, p_p = 0;
-      uint32_t l = 0, p_l = 0;
-
-      pbwt_col *all_cols = mupbwt.cols.a;
-      pbwt_col *c_col = &all_cols[0];
-      uint32_t c_p = c_arr_get(&c_col->e_pa, c_col->e_pa.n - 1);
-      uint32_t c_i = n_haps - 1;
-      uint32_t c_r = c_col->e_pa.n - 1;
-      uint8_t c_s = get_ns(c_col->zero, c_r);
-      uint32_t p_i = c_i;
-      uint8_t p_s = c_s;
-      auto compute_match_cm = [&](uint32_t end_col, uint32_t len_sites) -> double {
-        if (len_sites == 0)
-          return 0.0;
-        uint32_t start_col = (end_col + 1 > len_sites) ? (end_col + 1 - len_sites) : 0;
-        return std::max(0.0f, cm_pos[end_col] - cm_pos[start_col]);
+      auto add_score = [&](uint32_t h_id) {
+        if (haplo_score[h_id] == 0.0) {
+          active_haplos.push_back(h_id);
+        }
+        haplo_score[h_id] += weight;
       };
-      auto apply_score_inline = [&](uint32_t start_p, uint32_t match_len,
-                                    uint32_t col, double match_cm, bool last = false) {
-        double contrib = match_cm / region_cm;
-        double weight = contrib;
-        uint32_t depth_limit = 0;
-        bool exact_only = false;
 
-        if (last) {
-          exact_only = true;
-          depth_limit = K * 2;
-        } else {
-          if (match_cm < thr_short_cm) {
-            depth_limit = K;
-            exact_only = true;
-          } else if (match_cm < thr_medium_cm) {
-            depth_limit = K * 2;
-            exact_only = true;
-          } else {
-            exact_only = true;
-            depth_limit = MAX_EXACT_STEPS;
-            if (common)
-              depth_limit = mupbwt.n_haps;
-          }
-        }
-
-        auto add_score = [&](uint32_t h_id) {
-          if (haplo_score[h_id] == 0.0) {
-            active_haplos.push_back(h_id);
-          }
-          haplo_score[h_id] += weight;
-        };
-
-        add_score(start_p);
-        if (last && !rescued_ids[start_p]) {
-          rescued_ids[start_p] = true;
-#pragma omp critical
-          {
-            pbwt_states[target_ind][0].push_back(start_p);
-          }
-        }
-        uint32_t t_p = start_p;
-        uint32_t steps = 0;
-        while (steps < depth_limit) {
-          uint32_t d_p = phi_inv_f(&mupbwt.phid, t_p, col + 1);
-          if (d_p == n_haps)
-            break;
-          if (exact_only) {
-            uint32_t t_l = phi_l(&mupbwt.phid, d_p, col + 1);
-            if (t_l >= match_len) {
-              add_score(d_p);
-              t_p = d_p;
-            } else if (last && t_l >= match_len / 4) {
-#pragma omp critical
-              {
-                add_score(d_p);
-                c_rare++;
-                cn_rare += match_len;
-              }
-              t_p = d_p;
-            } else {
-              break;
-            }
-          } else {
+      add_score(start_p);
+      if (last && !Q.rescued_ids[start_p]) {
+        Q.rescued_ids[start_p] = true;
+        Q.local_rescued.push_back(start_p);
+      }
+      uint32_t t_p = start_p;
+      uint32_t steps = 0;
+      while (steps < depth_limit) {
+        uint32_t d_p = phi_inv_f(&mupbwt.phid, t_p, col + 1);
+        if (d_p == n_haps)
+          break;
+        if (exact_only) {
+          uint32_t t_l = phi_l_fast(&mupbwt.phid, d_p, col + 1);
+          if (t_l >= match_len) {
             add_score(d_p);
             t_p = d_p;
-          }
-          steps++;
-        }
-
-        t_p = start_p;
-        steps = 0;
-        while (steps < depth_limit) {
-          uint32_t u_p = phi_f(&mupbwt.phid, t_p, col + 1);
-          if (u_p == n_haps)
-            break;
-          if (exact_only) {
-            uint32_t t_l = phi_l(&mupbwt.phid, t_p, col + 1);
-            if (t_l >= match_len) {
-              add_score(u_p);
-              t_p = u_p;
-            } else if (last && t_l >= match_len / 4) {
-#pragma omp critical
-              {
-                add_score(u_p);
-                c_rare++;
-                cn_rare += match_len;
-              }
-              t_p = u_p;
-            } else {
-              break;
-            }
+          } else if (last && t_l >= match_len / 4) {
+            add_score(d_p);
+            t_p = d_p;
           } else {
+            break;
+          }
+        } else {
+          add_score(d_p);
+          t_p = d_p;
+        }
+        steps++;
+      }
+
+      t_p = start_p;
+      steps = 0;
+      while (steps < depth_limit) {
+        uint32_t t_l;
+        uint32_t u_p = phi_f_l(&mupbwt.phid, t_p, col + 1, &t_l);
+        if (u_p == n_haps)
+          break;
+        if (exact_only) {
+          if (t_l >= match_len) {
             add_score(u_p);
             t_p = u_p;
+          } else if (last && t_l >= match_len / 4) {
+            add_score(u_p);
+            t_p = u_p;
+          } else {
+            break;
           }
-          steps++;
-        }
-      };
-
-      double t_start_smem = omp_get_wtime();
-      for (size_t i = 0; i < n_sites; i++) {
-        c_col = &all_cols[i];
-        pbwt_col *next_col = (i < n_sites - 1) ? &all_cols[i + 1] : NULL;
-
-        uint8_t q_s = query[i];
-        if (LIKELY(q_s == c_s)) {
-          p = c_p;
-          l = (i != 0 && p_p == p) ? p_l + 1 : 1;
         } else {
-          uint32_t t = c_arr_get(&c_col->t, c_r);
-          uint32_t p_n = c_col->p.n;
-
-          if (UNLIKELY(p_n == 1)) {
-            p = n_haps;
-            l = 0;
-            p_s = 0;
-            if (next_col) {
-              c_p = c_arr_get(&next_col->e_pa, next_col->e_pa.n - 1);
-              c_i = n_haps - 1;
-              c_r = next_col->e_pa.n - 1;
-              c_s = get_ns(next_col->zero, c_r);
-            }
-            goto check_match;
-          }
-
-          uint32_t d;
-          bool is_up = (c_r != 0 && ((c_i < t) || (c_r == p_n - 1)));
-
-          if (is_up) {
-            p_i = c_i;
-            c_i = c_arr_get(&c_col->p, c_r) - 1;
-            c_p = c_arr_get(&c_col->e_pa, c_r - 1);
-            c_r--;
-            d = p_i - c_i;
-          } else {
-            p_i = c_i;
-            c_i = c_arr_get(&c_col->p, c_r + 1);
-            c_p = c_arr_get(&c_col->b_pa, c_r + 1);
-            c_r++;
-            d = c_i - p_i;
-          }
-
-          if (d < 90) {
-            uint32_t m = is_up ? get_l_u(&mupbwt, p_p, d, i)
-                               : get_l_d(&mupbwt, p_p, d, i);
-            l = std::min((uint32_t)m, p_l) + 1;
-          } else {
-            l = get_l(&mupbwt, query, i, c_i);
-          }
-          p = c_p;
+          add_score(u_p);
+          t_p = u_p;
         }
-        p_s = c_s;
-        if (next_col) {
-          c_i = fl(c_col, c_i, c_r);
-          c_r = get_r(next_col, c_i);
-          c_s = get_ns(next_col->zero, c_r);
-        }
-
-      check_match:
-        if (i > 0 && p_p != p && p_l > 0 && p_l >= l) {
-          double match_cm_1 = compute_match_cm(i - 1, p_l);
-          if (match_cm_1 > thr_min_cm)
-            apply_score_inline(p_p, p_l, i - 1, match_cm_1);
-        }
-
-        if (i == n_sites - 1 && l != 0) {
-          double match_cm_2 = compute_match_cm(i, l);
-          if (match_cm_2 > thr_min_cm)
-            apply_score_inline(p, l, i, match_cm_2);
-        }
-
-        if (p_s == 1 && c_col->e_pa.n <= 15) {
-          double match_cm_3 = compute_match_cm(i, l);
-          apply_score_inline(p, l, i, match_cm_3, true);
-        }
-
-        p_p = p;
-        p_l = l;
+        steps++;
       }
+    };
 
-      if (persistence_enabled) {
-        for (const auto &pr : prev_selected[q]) {
-          int h = pr.first;
-          double decayed = pr.second * persistence_decay;
-          if (decayed < persistence_floor)
-            continue;
-          if (haplo_score[h] == 0.0) {
-            active_haplos.push_back((uint32_t)h);
-            haplo_score[h] = decayed;
-          }
-        }
-      }
-
-      std::vector<std::pair<int, double>> haplo_vec;
-      haplo_vec.reserve(active_haplos.size());
-      double tot_s = 0.0;
-
-      for (uint32_t h : active_haplos) {
-        double final_score = std::min(haplo_score[h], 1.0);
-        haplo_vec.emplace_back(h, final_score);
-        tot_s += final_score;
-      }
-
-      double avg_s = haplo_vec.empty() ? 0.0 : tot_s / haplo_vec.size();
-      size_t elements_needed = (pbwt_depth)*chunk_size;
-      // elements_needed = 10 * chunk_size;
-      size_t top_k = std::min(haplo_vec.size(), elements_needed);
-
-      if (top_k > 0) {
-        std::partial_sort(
-            haplo_vec.begin(), haplo_vec.begin() + top_k, haplo_vec.end(),
-            [](const auto &a, const auto &b) { return a.second > b.second; });
-      }
-
-      if (top_k > 0) {
-        size_t idx = 0;
-        for (size_t d = 0; d < pbwt_depth && idx < top_k; d++) {
-          if (haplo_vec[idx].second < avg_s)
-            break;
-          size_t end = std::min(idx + chunk_size, top_k);
-          for (size_t i = idx; i < end; i++) {
-            local_states[d].push_back(haplo_vec[i].first);
-          }
-          idx = end;
-        }
+    auto scan_site = [&](mu_query_ctx &Q, size_t i, pbwt_col *c_col,
+                         pbwt_col *next_col) {
+      const uint8_t *query = Q.query.data();
+      uint8_t q_s = query[i];
+      if (LIKELY(q_s == Q.c_s)) {
+        Q.p = Q.c_p;
+        Q.l = (i != 0 && Q.p_p == Q.p) ? Q.p_l + 1 : 1;
       } else {
-        uint32_t t_p = p;
-        uint32_t steps = 0;
-        local_states[pbwt_depth - 1].push_back(p);
+        uint32_t t = c_arr_get(&c_col->t, Q.c_r);
+        uint32_t p_n = c_col->p.n;
 
-        while (steps < chunk_size) {
-          uint32_t d_p = phi_inv_f(&mupbwt.phid, t_p, n_sites);
-          if (d_p == n_haps)
-            break;
-          local_states[pbwt_depth - 1].push_back(d_p);
-          t_p = d_p;
-          steps++;
+        if (UNLIKELY(p_n == 1)) {
+          Q.p = n_haps;
+          Q.l = 0;
+          Q.p_s = 0;
+          if (next_col) {
+            Q.c_p = c_arr_get(&next_col->e_pa, next_col->e_pa.n - 1);
+            Q.c_i = n_haps - 1;
+            Q.c_r = next_col->e_pa.n - 1;
+            Q.c_s = get_ns(next_col->zero, Q.c_r);
+          }
+          goto check_match;
+        }
+
+        uint32_t d;
+        bool is_up = (Q.c_r != 0 && ((Q.c_i < t) || (Q.c_r == p_n - 1)));
+
+        if (is_up) {
+          Q.p_i = Q.c_i;
+          Q.c_i = c_arr_get(&c_col->p, Q.c_r) - 1;
+          Q.c_p = c_arr_get(&c_col->e_pa, Q.c_r - 1);
+          Q.c_r--;
+          d = Q.p_i - Q.c_i;
+        } else {
+          Q.p_i = Q.c_i;
+          Q.c_i = c_arr_get(&c_col->p, Q.c_r + 1);
+          Q.c_p = c_arr_get(&c_col->b_pa, Q.c_r + 1);
+          Q.c_r++;
+          d = Q.c_i - Q.p_i;
+        }
+
+        if (d < 30) {
+          uint32_t m = is_up ? get_l_u(&mupbwt, Q.p_p, d, i)
+                             : get_l_d(&mupbwt, Q.p_p, d, i);
+          Q.l = std::min((uint32_t)m, Q.p_l) + 1;
+        } else {
+          Q.l = get_l_ref(Q, i, Q.c_p);
+        }
+        Q.p = Q.c_p;
+      }
+      Q.p_s = Q.c_s;
+      if (next_col) {
+        if (use_view) {
+          const uint32_t *cv = v_pool + v_off[i];
+          Q.c_i = scan_hdr_n(cv[0]) ? Q.c_i + cv[1 + Q.c_r] : fl(c_col, Q.c_i, Q.c_r);
+          const uint32_t *nv = v_pool + v_off[i + 1];
+          const uint32_t nv_n = scan_hdr_n(nv[0]);
+          if (nv_n) {
+            const uint32_t *st = nv + 1 + nv_n;
+            uint32_t r = 0;
+            for (uint32_t k = 0; k + 1 < nv_n; k++)
+              r += Q.c_i >= st[k];
+            Q.c_r = r;
+          } else if (scan_hdr_samples(nv[0])) {
+            Q.c_r = get_r_sampled(next_col, nv, Q.c_i);
+          } else {
+            Q.c_r = get_r(next_col, Q.c_i);
+          }
+          Q.c_s = scan_hdr_ns0(nv[0]) ^ (Q.c_r & 1);
+        } else {
+          Q.c_i = fl(c_col, Q.c_i, Q.c_r);
+          Q.c_r = get_r(next_col, Q.c_i);
+          Q.c_s = get_ns(next_col->zero, Q.c_r);
         }
       }
 
-      size_t diag_local_total = 0;
-      for (size_t d = 0; d < pbwt_depth; d++) {
-        diag_local_total += local_states[d].size();
+    check_match:
+      if (i > 0 && Q.p_p != Q.p && Q.p_l > 0 && Q.p_l >= Q.l) {
+        double match_cm_1 = compute_match_cm(i - 1, Q.p_l);
+        if (match_cm_1 > thr_min_cm)
+          apply_score_inline(Q, Q.p_p, Q.p_l, i - 1, match_cm_1);
       }
 
-      if (persistence_enabled) {
-        std::vector<std::pair<int, double>> next_prev;
-        next_prev.reserve(diag_local_total);
-        for (size_t d = 0; d < (size_t)pbwt_depth; d++)
-          for (int h : local_states[d])
-            next_prev.emplace_back(h, std::min(haplo_score[h], 1.0));
-        prev_selected[q] = std::move(next_prev);
+      if (i == n_sites - 1 && Q.l != 0) {
+        double match_cm_2 = compute_match_cm(i, Q.l);
+        if (match_cm_2 > thr_min_cm)
+          apply_score_inline(Q, Q.p, Q.l, i, match_cm_2);
       }
+
+      if (Q.p_s == 1 && (use_view ? scan_hdr_rare15(v_pool[v_off[i]])
+                                  : c_col->e_pa.n <= 15)) {
+        double match_cm_3 = compute_match_cm(i, Q.l);
+        apply_score_inline(Q, Q.p, Q.l, i, match_cm_3, true);
+      }
+
+      Q.p_p = Q.p;
+      Q.p_l = Q.l;
+    };
+
+#pragma omp for schedule(dynamic)
+    for (size_t blk = 0; blk < n_blocks; ++blk) {
+      const size_t q_begin = blk * n_batch;
+      const size_t n_q = std::min(n_batch, (size_t)n - q_begin);
+
+      for (size_t b = 0; b < n_q; ++b) {
+        mu_query_ctx &Q = ctx[b];
+        Q.q = q_begin + b;
+        Q.haplo_score.clear();
+        for (uint32_t h : Q.active_haplos)
+          Q.rescued_ids[h] = false;
+        Q.active_haplos.clear();
+        Q.local_rescued.clear();
+        for (auto &vec : Q.local_states) {
+          vec.clear();
+        }
+
+        size_t ind_idx = Q.q / 2;
+        bool is_h1 = (Q.q % 2 != 0);
+        const auto &genotype_ptr = G.vecG[ind_idx];
+        const auto &source_H = is_h1 ? genotype_ptr->H1 : genotype_ptr->H0;
+        uint8_t *query = Q.query.data();
+
+        for (size_t s = 0; s < n_sites; ++s) {
+          query[s] = source_H[s] ? 1 : 0;
+        }
+
+        Q.q_rare.clear();
+        for (size_t s = 0; s < n_sites; ++s)
+          if (site_minor[s] == query[s])
+            Q.q_rare.push_back((int)s);
+        Q.p = 0;
+        Q.p_p = 0;
+        Q.l = 0;
+        Q.p_l = 0;
+        pbwt_col *c_col = &all_cols[0];
+        Q.c_p = c_arr_get(&c_col->e_pa, c_col->e_pa.n - 1);
+        Q.c_i = n_haps - 1;
+        Q.c_r = c_col->e_pa.n - 1;
+        Q.c_s = get_ns(c_col->zero, Q.c_r);
+        Q.p_i = Q.c_i;
+        Q.p_s = Q.c_s;
+      }
+
+      for (size_t i = 0; i < n_sites; i++) {
+        pbwt_col *c_col = &all_cols[i];
+        pbwt_col *next_col = (i < n_sites - 1) ? &all_cols[i + 1] : NULL;
+        if (use_view) {
+          if (i + PBWT_PF_STRUCT < n_sites &&
+              scan_hdr_n(v_pool[v_off[i + PBWT_PF_STRUCT]]) == 0) {
+            const char *a = (const char *)&all_cols[i + PBWT_PF_STRUCT];
+            __builtin_prefetch(a, 0, 3);
+            __builtin_prefetch(a + 64, 0, 3);
+            __builtin_prefetch(a + sizeof(pbwt_col) - 1, 0, 3);
+          }
+          if (i + PBWT_PF_DATA < n_sites &&
+              scan_hdr_n(v_pool[v_off[i + PBWT_PF_DATA]]) == 0) {
+            const uint32_t *pv = v_pool + v_off[i + PBWT_PF_DATA];
+            const uint32_t pns = scan_hdr_samples(pv[0]);
+            if (pns > 0 && pns <= 128)
+              for (uint32_t k = 0; k <= pns; k += 16)
+                __builtin_prefetch(pv + k, 0, 3);
+            __builtin_prefetch(all_cols[i + PBWT_PF_DATA].p.data, 0, 3);
+            __builtin_prefetch(all_cols[i + PBWT_PF_DATA].uv.data, 0, 3);
+          }
+        } else {
+          pbwt_prefetch_cols(all_cols, i, n_sites);
+        }
+        for (size_t b = 0; b < n_q; ++b)
+          scan_site(ctx[b], i, c_col, next_col);
+      }
+
+      for (size_t b = 0; b < n_q; ++b) {
+        mu_query_ctx &Q = ctx[b];
+        const size_t q = Q.q;
+        uint32_t target_ind = tar_hapid2ind[q];
+        mu_score_map &haplo_score = Q.haplo_score;
+        std::vector<uint32_t> &active_haplos = Q.active_haplos;
+        std::vector<std::vector<int>> &local_states = Q.local_states;
+
+        if (persistence_enabled) {
+          for (const auto &pr : prev_selected[q]) {
+            int h = pr.first;
+            double decayed = pr.second * persistence_decay;
+            if (decayed < persistence_floor)
+              continue;
+            if (haplo_score[h] == 0.0) {
+              active_haplos.push_back((uint32_t)h);
+              haplo_score[h] = decayed;
+            }
+          }
+        }
+
+        std::vector<std::pair<int, double>> haplo_vec;
+        haplo_vec.reserve(active_haplos.size());
+        double tot_s = 0.0;
+
+        for (uint32_t h : active_haplos) {
+          double final_score = std::min(haplo_score[h], 1.0);
+          haplo_vec.emplace_back(h, final_score);
+          tot_s += final_score;
+        }
+
+        double avg_s = haplo_vec.empty() ? 0.0 : tot_s / haplo_vec.size();
+        size_t elements_needed = (pbwt_depth)*chunk_size;
+        size_t top_k = std::min(haplo_vec.size(), elements_needed);
+
+        if (top_k > 0) {
+          std::partial_sort(
+              haplo_vec.begin(), haplo_vec.begin() + top_k, haplo_vec.end(),
+              [](const auto &a, const auto &b) { return a.second > b.second; });
+        }
+
+        if (top_k > 0) {
+          size_t idx = 0;
+          for (size_t d = 0; d < pbwt_depth && idx < top_k; d++) {
+            if (haplo_vec[idx].second < avg_s)
+              break;
+            size_t end = std::min(idx + chunk_size, top_k);
+            for (size_t i = idx; i < end; i++) {
+              local_states[d].push_back(haplo_vec[i].first);
+            }
+            idx = end;
+          }
+        } else {
+          uint32_t t_p = Q.p;
+          uint32_t steps = 0;
+          local_states[pbwt_depth - 1].push_back(Q.p);
+
+          while (steps < chunk_size) {
+            uint32_t d_p = phi_inv_f(&mupbwt.phid, t_p, n_sites);
+            if (d_p == n_haps)
+              break;
+            local_states[pbwt_depth - 1].push_back(d_p);
+            t_p = d_p;
+            steps++;
+          }
+        }
+
+        size_t diag_local_total = 0;
+        for (size_t d = 0; d < pbwt_depth; d++) {
+          diag_local_total += local_states[d].size();
+        }
+
+        if (persistence_enabled) {
+          std::vector<std::pair<int, double>> next_prev;
+          next_prev.reserve(diag_local_total);
+          for (size_t d = 0; d < (size_t)pbwt_depth; d++)
+            for (int h : local_states[d])
+              next_prev.emplace_back(h, std::min(haplo_score[h], 1.0));
+          prev_selected[q] = std::move(next_prev);
+        }
 
 #pragma omp critical
-      {
-        for (size_t d = 0; d < pbwt_depth; d++) {
-          if (!local_states[d].empty()) {
-            pbwt_states[target_ind][d].insert(pbwt_states[target_ind][d].end(),
-                                              local_states[d].begin(),
-                                              local_states[d].end());
+        {
+          pbwt_states[target_ind][0].insert(pbwt_states[target_ind][0].end(),
+                                            Q.local_rescued.begin(),
+                                            Q.local_rescued.end());
+          for (size_t d = 0; d < pbwt_depth; d++) {
+            if (!local_states[d].empty()) {
+              pbwt_states[target_ind][d].insert(pbwt_states[target_ind][d].end(),
+                                                local_states[d].begin(),
+                                                local_states[d].end());
+            }
           }
+          diag_sel_sum += diag_local_total;
+          diag_sel_max = std::max(diag_sel_max, diag_local_total);
+          diag_pool_sum += haplo_vec.size();
+          diag_pool_max = std::max(diag_pool_max, haplo_vec.size());
         }
-        diag_sel_sum += diag_local_total;
-        diag_sel_max = std::max(diag_sel_max, diag_local_total);
-        diag_pool_sum += haplo_vec.size();
-        diag_pool_max = std::max(diag_pool_max, haplo_vec.size());
       }
     }
   }
 
-  // vrb.bullet("used : " + stb.str(c_rare / n) + " avg ultra rare");
-
-  // vrb.bullet("used : " + stb.str(cn_rare / c_rare) + " avg len ultra rare");
-  // vrb.bullet("mupbwt average haplos per target selected: " +
-  //            stb.str((double)diag_sel_sum / n, 1));
   vrb.bullet("Mu-PBWT selection (" + stb.str(tac.rel_time() * 1.0 / 1000, 2) +
              "s)");
   pbwt_depth = tmp_d;
-  // double avg_smem = sum_smem_time / threads;
-  // double avg_rank = sum_rank_time / threads;
-  //
-  // vrb.bullet("  -> Avg SMEM computation : " + stb.str(avg_smem, 2) + "s");
-  // vrb.bullet("  -> Avg Ranking/Sorting  : " + stb.str(avg_rank, 2) + "s");
 }
 
 std::vector<unsigned int>
@@ -835,8 +983,6 @@ void haplotype_set::matchHapsFromCompressedPBWTSmall(
         init_common(k, l_hq, prev_ref_rac_l_com);
       ref_rac_l_com = M.vec_pos[k]->cref;
       read_full_pbwt_av(pY, ref_rac_l_com);
-      // vrb.bullet("select common at " + stb.str(k) + " ref " +
-      // stb.str(ref_rac_l_com));
       select_common_pd_fg(k, l_hq, l_all, ref_rac_l_com, prev_ref_rac_l_com);
       prev_ref_rac_l_com = ref_rac_l_com;
       ++l_all;
@@ -849,8 +995,6 @@ void haplotype_set::matchHapsFromCompressedPBWTSmall(
                            : A_small_idx[l_hq].size() - M.vec_pos[k]->calt;
       read_small_pbwt_av(pY, ref_rac_l_rare, rareTarHaps.size());
 
-      // vrb.bullet("select rare at " + stb.str(k) + " ref " +
-      // stb.str(ref_rac_l_rare));
       select_rare_pd_fg(k, ref_rac_l_rare);
       prev_ref_rac_l_rare = ref_rac_l_rare;
     }
@@ -871,7 +1015,10 @@ void haplotype_set::read_full_pbwt_av(const unsigned char *&pY,
   int mm;
   const int size_a = n_ref_haps;
   const std::array<int *, 2> occ = {&u, &v};
-  pbwt_array_V[0] = 0;
+  uint64_t *bits = pbwt_col_bits.data();
+  int *prefix = pbwt_col_prefix.data();
+  std::fill(pbwt_col_bits.begin(), pbwt_col_bits.end(), 0);
+  prefix[0] = 0;
   while (m < size_a) {
     z = *pY++;              // read the encoded symbol
     n = p3decode[z & 0x7f]; // get how many chars are encoded
@@ -879,11 +1026,20 @@ void haplotype_set::read_full_pbwt_av(const unsigned char *&pY,
     z >>= 7;                // get the symbol itself
     std::copy(pbwt_array_A.begin() + m, pbwt_array_A.begin() + mm,
               pbwt_array_B.begin() + *occ[z]); // update B, (next A)
-    z ? std::iota(pbwt_array_V.begin() + m + 1, pbwt_array_V.begin() + mm + 1,
-                  v - ref_rac_l + 1)
-      : std::fill(
-            pbwt_array_V.begin() + m + 1, pbwt_array_V.begin() + mm + 1,
-            v - ref_rac_l); // we pick V as we expect more fill() than iota
+    for (int w = (m >> 6) + 1; (w << 6) <= mm; ++w)
+      prefix[w] = v - ref_rac_l + z * ((w << 6) - m);
+    if (z) {
+      const int w0 = m >> 6, w1 = (mm - 1) >> 6;
+      const uint64_t mask0 = ~0ULL << (m & 63),
+                     mask1 = ~0ULL >> (63 - ((mm - 1) & 63));
+      if (w0 == w1)
+        bits[w0] |= mask0 & mask1;
+      else {
+        bits[w0] |= mask0;
+        std::fill(bits + w0 + 1, bits + w1, ~0ULL);
+        bits[w1] |= mask1;
+      }
+    }
     m = mm;                 // update position in PPA for next loop
     *occ[z] += n;           // update FM
   }
@@ -929,13 +1085,15 @@ void haplotype_set::select_common_pd_fg(const int k, const int l_hq,
     const unsigned char prev_hap = tar_hap[htr];
     tar_hap[htr] = HvarTar.get(l_all, htr);
 
-    idx =
-        tar_hap[htr] * (ref_rac_l + pbwt_array_V[pbwt_index[htr]]) +
-        (1 - tar_hap[htr]) * (pbwt_index[htr] - pbwt_array_V[pbwt_index[htr]]);
-    f_dash = tar_hap[htr] * (ref_rac_l + pbwt_array_V[f_k[htr]]) +
-             (1 - tar_hap[htr]) * (f_k[htr] - pbwt_array_V[f_k[htr]]);
-    g_dash = tar_hap[htr] * (ref_rac_l + pbwt_array_V[g_k[htr]]) +
-             (1 - tar_hap[htr]) * (g_k[htr] - pbwt_array_V[g_k[htr]]);
+    const int v_idx = pbwt_rank(pbwt_index[htr]);
+    const int v_f = pbwt_rank(f_k[htr]);
+    const int v_g = pbwt_rank(g_k[htr]);
+    idx = tar_hap[htr] * (ref_rac_l + v_idx) +
+          (1 - tar_hap[htr]) * (pbwt_index[htr] - v_idx);
+    f_dash = tar_hap[htr] * (ref_rac_l + v_f) +
+             (1 - tar_hap[htr]) * (f_k[htr] - v_f);
+    g_dash = tar_hap[htr] * (ref_rac_l + v_g) +
+             (1 - tar_hap[htr]) * (g_k[htr] - v_g);
 
     if (g_dash <= f_dash) {
       ++counter_gf;
@@ -1107,17 +1265,17 @@ void haplotype_set::init_common(const int k, const int l,
     f_k[htr] = f_dash;
     g_k[htr] = g_dash;
   }
-  std::vector<bool> map_big_small(n_ref_haps, true);
   const std::vector<int> &small_idx = A_small_idx[l];
-  for (int htr = 0; htr < small_idx.size(); ++htr)
-    map_big_small[small_idx[htr]] = false;
-  int n_zeros = small_idx[0];
-  for (int htr = n_zeros + 1; htr < n_ref_haps; ++htr)
-    if (map_big_small[htr])
-      pbwt_array_A[n_zeros++] = pbwt_array_A[htr];
-
-  for (int htr = 0; htr < pbwt_small_A.size(); ++htr, ++n_zeros)
-    pbwt_array_A[n_zeros] = pbwt_small_A[htr];
+  const int n_small = small_idx.size();
+  int *A = pbwt_array_A.data();
+  int n_kept = small_idx[0];
+  for (int i = 0; i < n_small; ++i) {
+    const int gap_start = small_idx[i] + 1;
+    const int gap_end = (i + 1 < n_small) ? small_idx[i + 1] : n_ref_haps;
+    std::copy(A + gap_start, A + gap_end, A + n_kept);
+    n_kept += gap_end - gap_start;
+  }
+  std::copy(pbwt_small_A.begin(), pbwt_small_A.end(), A + n_kept);
 }
 
 void haplotype_set::init_rare(const variant_map &M, const int k, const int l) {

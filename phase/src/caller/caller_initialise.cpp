@@ -34,6 +34,114 @@
 #include <io/genotype_writer.h>
 #include <io/gmap_reader.h>
 #include <io/retry_io.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif
+#include <unistd.h>
+
+#if defined(__linux__) && defined(SYS_set_mempolicy) && defined(SYS_mbind)
+
+static bool mu_memory_nodes(unsigned long *mask) {
+  std::ifstream f("/sys/devices/system/node/has_memory");
+  std::string spec;
+  if (!(f >> spec))
+    return false;
+  int n_nodes = 0;
+  std::stringstream ss(spec);
+  std::string tok;
+  while (std::getline(ss, tok, ',')) {
+    size_t dash = tok.find('-');
+    int a = std::stoi(tok.substr(0, dash));
+    int b = dash == std::string::npos ? a : std::stoi(tok.substr(dash + 1));
+    for (int k = a; k <= b && k < 1024; k++, n_nodes++)
+      mask[k / 64] |= 1UL << (k % 64);
+  }
+  return n_nodes > 1;
+}
+
+static bool mu_interleave_policy(bool enable) {
+  if (!enable)
+    return syscall(SYS_set_mempolicy, 0, NULL, 0) == 0;
+  unsigned long mask[16] = {0};
+  if (!mu_memory_nodes(mask))
+    return false;
+  return syscall(SYS_set_mempolicy, 3, mask, 1024) == 0;
+}
+
+static void mu_interleave_index(const pbwt &p, const pbwt_scan_view &view) {
+  unsigned long mask[16] = {0};
+  if (!mu_memory_nodes(mask))
+    return;
+  std::vector<std::pair<uintptr_t, uintptr_t>> blocks;
+  auto add = [&](const void *ptr, size_t bytes) {
+    if (ptr && bytes)
+      blocks.emplace_back((uintptr_t)ptr, (uintptr_t)ptr + bytes);
+  };
+  auto add_arr = [&](const c_arr &a) {
+    add(a.data, c_arr_buffer_bytes(&a) + sizeof(uint32_t));
+  };
+  const size_t off_bytes = ((size_t)p.phid.n_h + 1) * sizeof(uint32_t);
+  add(p.phid.phi_pos_off, off_bytes);
+  add(p.phid.phi_inv_pos_off, off_bytes);
+  add(p.phid.phi_supp_off, off_bytes);
+  add(p.phid.phi_inv_supp_off, off_bytes);
+  add(p.phid.phi_l_supp_off, off_bytes);
+  add_arr(p.phid.phi_pos);
+  add_arr(p.phid.phi_inv_pos);
+  add_arr(p.phid.phi_supp);
+  add_arr(p.phid.phi_inv_supp);
+  add_arr(p.phid.phi_l_supp);
+  add(p.cols.a, p.cols.n * sizeof(pbwt_col));
+  for (size_t i = 0; i < p.cols.n; i++) {
+    const pbwt_col &c = p.cols.a[i];
+    add_arr(c.p);
+    add_arr(c.uv);
+    add_arr(c.t);
+    add_arr(c.b_pa);
+    add_arr(c.e_pa);
+  }
+  add(view.off.data(), view.off.size() * sizeof(uint32_t));
+  add(view.pool.data(), view.pool.size() * sizeof(uint32_t));
+  std::sort(blocks.begin(), blocks.end());
+
+  std::vector<std::pair<uintptr_t, uintptr_t>> maps;
+  std::ifstream fm("/proc/self/maps");
+  std::string line;
+  while (std::getline(fm, line)) {
+    uintptr_t a = 0, b = 0;
+    char perms[8] = {0};
+    if (sscanf(line.c_str(), "%lx-%lx %7s", &a, &b, perms) == 3 &&
+        perms[0] == 'r' && perms[1] == 'w')
+      maps.emplace_back(a, b);
+  }
+  const uintptr_t page = (uintptr_t)sysconf(_SC_PAGESIZE);
+  size_t bi = 0;
+  for (const auto &m : maps) {
+    while (bi < blocks.size() && blocks[bi].second <= m.first)
+      bi++;
+    uintptr_t lo = UINTPTR_MAX, hi = 0;
+    for (size_t k = bi; k < blocks.size() && blocks[k].first < m.second; k++) {
+      if (blocks[k].first >= m.first && blocks[k].second <= m.second) {
+        lo = std::min(lo, blocks[k].first);
+        hi = std::max(hi, blocks[k].second);
+      }
+    }
+    if (lo >= hi)
+      continue;
+    lo &= ~(page - 1);
+    hi = std::min(m.second, (hi + page - 1) & ~(page - 1));
+    syscall(SYS_mbind, (void *)lo, hi - lo, 3, mask, 1024, 0);
+  }
+}
+
+#else
+
+static bool mu_interleave_policy(bool) { return false; }
+
+static void mu_interleave_index(const pbwt &, const pbwt_scan_view &) {}
+
+#endif
+
 
 void caller::print_ref_panel_info(const std::string ref_string) {
   vrb.bullet(
@@ -196,8 +304,15 @@ void caller::read_files_and_initialise() {
     }
     setvbuf(fpb, NULL, _IOFBF, 1024 * 1024 * 4);
 
+    const bool interleaved = nthreads > 1 && options["mupbwt-numa"].as<bool>() &&
+                             mu_interleave_policy(true);
     pbwt_deserialize(fpb, &mupbwt);
     fclose(fpb);
+    pbwt_build_scan_view(&mupbwt, H.mu_scan_view, true);
+    if (interleaved) {
+      mu_interleave_policy(false);
+      mu_interleave_index(mupbwt, H.mu_scan_view);
+    }
     vrb.bullet("mu-PBWT loading (" + stb.str(tac.rel_time() * 1.0 / 1000, 2) +
                "s)");
   }

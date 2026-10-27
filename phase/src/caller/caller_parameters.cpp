@@ -70,8 +70,9 @@ void caller::declare_options() {
       "If not specified the prefix of the BAM/CRAM file (--bam-file) is used.")(
       "keep-monomorphic-ref-sites",
       "(Expert setting) Keeps monomorphic markers in the reference panel "
-      "(removed by default)")("checkpoint-file-in", bpo::value<std::string>(),
-                              "File to read in checkpoint from")(
+      "(removed by default)")(
+      "checkpoint-file-in", bpo::value<std::string>(),
+      "File to read in checkpoint from")(
       "impute-reference-only-variants",
       "Allows imputation at variants only present in the reference panel. The "
       "use of this option is intended only to allow imputation at sporadic "
@@ -90,7 +91,6 @@ void caller::declare_options() {
       "from low-coverage data are often miscalibrated, potentially affecting "
       "neighbouring variants.")("mupbwt", "use mupbwt")(
       "mupbwt-smems", "use mupbwt smems")("mupbwt-mpsc", "use mupbwt mpsc")(
-      "mupbwt-common", "use mupbwt only on common variants")(
       "mupbwt-min-cm", bpo::value<float>()->default_value(0.01f),
       "mupbwt minimum genetic-length (cM) for a match to be scored")(
       "mupbwt-short-cm", bpo::value<float>()->default_value(0.02f),
@@ -106,11 +106,14 @@ void caller::declare_options() {
       "mupbwt-persistence", bpo::value<bool>()->default_value(true),
       "use cross-iteration mu-PBWT match persistence")(
       "mupbwt-persistence-decay", bpo::value<float>()->default_value(0.9f),
-      "mupbwt persistence: per-iteration decay applied to carried-over match "
-      "scores")("mupbwt-persistence-floor",
-                bpo::value<float>()->default_value(0.02f),
-                "mupbwt persistence: minimum decayed score below which a "
-                "carried-over match is dropped");
+      "mupbwt persistence: per-iteration decay applied to carried-over match scores")(
+      "mupbwt-persistence-floor", bpo::value<float>()->default_value(0.02f),
+      "mupbwt persistence: minimum decayed score below which a carried-over match is dropped")(
+      "mupbwt-batch", bpo::value<int>()->default_value(2),
+      "mupbwt max queries scanned together per work item (bigger -> faster selection, more memory)")(
+      "mupbwt-numa", bpo::value<bool>()->default_value(true),
+      "interleave the mu-PBWT index over the NUMA memory nodes when using several threads")
+  ;
 
   bpo::options_description opt_algo("Model parameters");
   opt_algo.add_options()(
@@ -436,14 +439,21 @@ void caller::check_options() {
   if (options["max-depth"].as<int>() < 10)
     vrb.error("Max depth has been set too low [< 10].");
 
-  if (options["mupbwt-depth"].as<int>() > options["pbwt-depth"].as<int>())
-    vrb.error("mupbwt depth must be <= than glimpse depth");
+  if (options["mupbwt-depth"].as<int>() > options["max-depth"].as<int>())
+    vrb.error("mupbwt depth must be <= than max depth");
 
-  if (options["mupbwt-short-cm"].as<float>() >=
-      options["mupbwt-medium-cm"].as<float>())
+  if (options["mupbwt-depth"].as<int>() > options["pbwt-depth"].as<int>())
+    vrb.error("mupbwt-depth must be <= pbwt-depth (pbwt_states is allocated "
+              "with pbwt-depth slots per target haplotype and matchHapsFromMuPBWT "
+              "writes up to mupbwt-depth slots into it, so mupbwt-depth > "
+              "pbwt-depth is an out-of-bounds write)");
+
+  if (options["mupbwt-batch"].as<int>() < 1)
+    vrb.error("mupbwt-batch must be >= 1");
+
+  if (options["mupbwt-short-cm"].as<float>() >= options["mupbwt-medium-cm"].as<float>())
     vrb.error("mupbwt-short-cm must be < mupbwt-medium-cm");
-  if (options["mupbwt-min-cm"].as<float>() >=
-      options["mupbwt-short-cm"].as<float>())
+  if (options["mupbwt-min-cm"].as<float>() >= options["mupbwt-short-cm"].as<float>())
     vrb.warning("mupbwt-min-cm is >= mupbwt-short-cm: matches will never fall "
                 "into the 'short' depth bucket");
 }
@@ -610,8 +620,6 @@ void caller::verbose_options() {
                no_yes[options.count("mupbwt-smems")] + "]");
     vrb.bullet("mupbwt-mpsc          : [" +
                no_yes[options.count("mupbwt-mpsc")] + "]");
-    vrb.bullet("mupbwt-common        : [" +
-               no_yes[options.count("mupbwt-common")] + "]");
     vrb.bullet("mupbwt-min-cm        : [" +
                stb.str(options["mupbwt-min-cm"].as<float>()) + "]");
     vrb.bullet("mupbwt-short-cm      : [" +
@@ -630,6 +638,10 @@ void caller::verbose_options() {
                stb.str(options["mupbwt-persistence-decay"].as<float>()) + "]");
     vrb.bullet("mupbwt-persistence-floor: [" +
                stb.str(options["mupbwt-persistence-floor"].as<float>()) + "]");
+    vrb.bullet("mupbwt-batch         : [" +
+               stb.str(options["mupbwt-batch"].as<int>()) + "]");
+    vrb.bullet("mupbwt-numa          : [" +
+               no_yes[options["mupbwt-numa"].as<bool>()] + "]");
   }
   if (no_yes[options.count("mupbwt")] == "YES") {
     use_mu = true;
@@ -641,9 +653,6 @@ void caller::verbose_options() {
     use_mpsc = true;
   }
 
-  if (no_yes[options.count("mupbwt-common")] == "YES") {
-    use_mu_common = true;
-  }
 
   vrb.title("Other parameters");
   vrb.bullet("Seed                 : [" + stb.str(options["seed"].as<int>()) +

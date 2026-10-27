@@ -201,6 +201,19 @@ int c_arr_serialize(const c_arr *arr, FILE *fp) {
 
   return 0;
 }
+int c_arr_skip(FILE *fp) {
+  uint64_t n;
+  uint8_t bits;
+  uint64_t bytes_len;
+  if (fread(&n, sizeof(uint64_t), 1, fp) != 1)
+    return -1;
+  if (fread(&bits, sizeof(uint8_t), 1, fp) != 1)
+    return -1;
+  if (fread(&bytes_len, sizeof(uint64_t), 1, fp) != 1)
+    return -1;
+  return fseek(fp, (long)bytes_len, SEEK_CUR);
+}
+
 c_arr *c_arr_deserialize(FILE *fp) {
   if (!fp)
     return NULL;

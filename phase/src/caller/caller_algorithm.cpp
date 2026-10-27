@@ -113,7 +113,7 @@ void caller::phase_iteration() {
       uint32_t n_sites = mupbwt.n_sites;
       H.matchHapsFromMuPBWT(
           mupbwt, V, current_stage == STAGE_MAIN, G, n_sites,
-          options["threads"].as<int>(), H, use_mu_common,
+          options["threads"].as<int>(), H,
           options["mupbwt-min-cm"].as<float>(),
           options["mupbwt-short-cm"].as<float>(),
           options["mupbwt-medium-cm"].as<float>(),
@@ -121,7 +121,8 @@ void caller::phase_iteration() {
           options["mupbwt-depth"].as<int>(),
           options["mupbwt-persistence"].as<bool>(),
           options["mupbwt-persistence-decay"].as<float>(),
-          options["mupbwt-persistence-floor"].as<float>());
+          options["mupbwt-persistence-floor"].as<float>(),
+          options["mupbwt-batch"].as<int>());
     } else {
       H.matchHapsFromCompressedPBWTSmall(V, current_stage == STAGE_MAIN);
     }

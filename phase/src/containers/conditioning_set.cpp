@@ -93,15 +93,6 @@ void conditioning_set::compactSelection(const int ind, const int iter)
 
 		std::copy(states_ind.begin(), states_ind.end(), std::back_inserter(idxHaps_ref));
 	}
-  // else if(use_mu && use_smems){
-  //   std::set<int> states_ind;
-  // int i = 0;
-  // 	for (int j=H.pbwt_states[ind][i].size()-1; j>=0 ; --j)
-  // 		states_ind.insert(H.pbwt_states[ind][i][j]);
-  //
-  // std::copy(states_ind.begin(), states_ind.end(), std::back_inserter(idxHaps_ref));
-  //
-  // }
 	else if (Kpbwt > 0 && Kpbwt < H.n_ref_haps)
 	{ // HERE
 		std::set<int> states_ind;
