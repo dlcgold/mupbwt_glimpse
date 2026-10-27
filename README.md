@@ -11,7 +11,67 @@ make build_ser_from_bcf
 
 `make` builds `phase`, `split_reference`, `build_ser_from_bin`, `build_ser_from_bcf` and the five upstream tools. The upstream tools are linked statically against the bundled boost and htslib; they need `libdeflate-dev`.
 
-## phase options for mu-PBWT
+## Quick start
+
+```shell
+# 1. simulate low-coverage BAMs
+mkdir -p unmasked_10k/reads100_150_default
+./GLIMPSE2_simulate_bams_static --input-vcf target_unmasked_100_msprime_sim.bcf \
+  --read-length 150 --contig 1 -O unmasked_10k/reads100_150_default --thread 7
+
+# 2. index the BAMs and build the list it expects
+samtools index -M unmasked_10k/reads100_150_default/*.bam
+realpath unmasked_10k/reads100_150_default/*.bam > unmasked_10k/reads100_150_default/all.txt
+
+# 3. split + index the reference panel
+./split_reference/bin/GLIMPSE2_split_reference \
+  --reference 10k/ref_panel_10k_msprime_sim.bcf \
+  --input-region 1:77-9999973 --output-region 1:77-9999973 \
+  --output 10k/ref_panel_10k --mupbwt
+
+# 3b. alternatively, build the .ser from the .bin made without --mupbwt
+./build_ser_from_bin/bin/GLIMPSE2_build_ser_from_bin \
+  --bin 10k/ref_panel_10k_1_77_9999973.bin --output 10k/ref_panel_10k_1_77_9999973.ser
+
+# 3c. or from the reference BCF (cut to the same region)
+./build_ser_from_bcf/bin/GLIMPSE2_build_ser_from_bcf index \
+  --input 10k/ref_panel_10k_region.bcf --output 10k/ref_panel_10k_1_77_9999973.ser --threads 4
+
+# 4. phase / impute
+./phase/bin/GLIMPSE2_phase \
+  --bam-list unmasked_10k/reads100_150_default/all.txt \
+  --reference 10k/ref_panel_10k_1_77_9999973.bin \
+  --output unmasked_10k/imputed.bcf \
+  --main 15 --burnin 5 --thread 5 --mupbwt
+
+# 5. concordance — needs unmasked_10k/con.txt (created by hand, see below)
+./concordance/bin/GLIMPSE2_concordance --input unmasked_10k/con.txt \
+  --output unmasked_10k/concordance \
+  --bins 0.00000 0.00100 0.00200 0.00500 0.01000 0.05000 0.10000 0.20000 0.50000 \
+  --thread 4 --gt-val
+
+python conc.py unmasked_10k/concordance.rsquare.grp.txt.gz unmasked_10k/plot.pdf
+```
+
+Create `unmasked_10k/con.txt` by hand — one whitespace-separated line per chromosome,
+`<chr> <allele-freq bcf> <truth bcf> <imputed bcf>`:
+
+```
+1  unmasked_10k/frq.bcf  unmasked_10k/target_unmasked_100_msprime_sim.bcf  unmasked_10k/imputed.bcf
+```
+
+## mu-PBWT flags
+
+### split_reference
+
+use `--mupbwt` to build mu-PBWT alongside stock:
+
+|        | without `--mupbwt` (default) | with `--mupbwt`                                         |
+| ------ | ---------------------------- | ------------------------------------------------------- |
+| Builds | stock PBWT only              | mu-PBWT index and stock required information            |
+| Output | `<output>_<region>.bin` only | `<output>_<region>.bin` **and** `<output>_<region>.ser` |
+
+### phase options for mu-PBWT
 
 All of them only matter with `--mupbwt`. The reference must have been indexed (`.ser` next to the `.bin`).
 
