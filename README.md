@@ -140,5 +140,3 @@ docker run --rm -v "$PWD:/data" -w /data glimpse2-mupbwt -c "
 GLIMPSE2_phase --bam-list all.txt --reference 10k/ref_panel_10k_1_77_9999973.bin \
   --output imputed.bcf --main 15 --burnin 5 --thread 5 --mupbwt"
 ```
-
-The build was tested with `make` in a clean copy of this folder; the Dockerfiles themselves have not been built (no Docker on the build machine).
