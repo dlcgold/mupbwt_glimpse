@@ -90,25 +90,10 @@ All of them only matter with `--mupbwt`. The reference must have been indexed (`
 | `--mupbwt-batch`             | 2       | maximum number of queries scanned together in one work item; must be `>= 1`. Bigger makes selection faster and uses more memory |
 | `--mupbwt-numa`              | true    | when several threads are used, interleave the mu-PBWT index over the machine's NUMA memory nodes                                |
 
-The cM thresholds use the genetic map the reference was built with. If the `.bin` was built without `--map`, cM is 1 cM per Mb and they are physical distances.
-
 Measurements so far, all on the test machine used for the benchmarks:
 
 - 1000 Genomes chr20, 24 CEU samples: batch 2 with NUMA on gave no gain over batch 1 with NUMA off on this small panel.
 - Earlier 16-thread sweep: batch 8 made selection 16% faster than batch 2, but total wall time about 4% slower and 1.6 GiB more RAM.
-
-`--mupbwt-smems` and `--mupbwt-mpsc` are still accepted but do nothing.
-
-## Index tools
-
-```shell
-split_reference/bin/GLIMPSE2_split_reference --reference ref.bcf --input-region 1:11-500000 \
-  --output-region 1:11-500000 --output out/ref --mupbwt            # writes .bin and .ser
-build_ser_from_bin/bin/GLIMPSE2_build_ser_from_bin --bin out/ref_1_11_500000.bin --output out/ref_1_11_500000.ser
-build_ser_from_bcf/bin/GLIMPSE2_build_ser_from_bcf index --input ref_region.bcf --output out/ref_1_11_500000.ser --threads 4
-```
-
-All three give the same `.ser` bytes. `phase` reads the `.ser` next to the `.bin` (same name, `.ser` extension).
 
 ## Docker
 
@@ -139,3 +124,5 @@ docker run --rm -v "$PWD:/data" -w /data glimpse2-mupbwt -c "
 GLIMPSE2_phase --bam-list all.txt --reference 10k/ref_panel_10k_1_77_9999973.bin \
   --output imputed.bcf --main 15 --burnin 5 --thread 5 --mupbwt"
 ```
+
+`Dockerfile_standalone` clones the repository itself (--build-arg REPO_URL=... --build-arg GIT_REF=...) and builds all the tools in the image, so it needs no local checkout
