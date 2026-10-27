@@ -15,6 +15,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
   liblzma-dev \
   libcurl4-openssl-dev \
   libssl-dev \
+  libdeflate-dev \
   && rm -rf /var/lib/apt/lists/*
 
 # simde
@@ -26,7 +27,7 @@ RUN wget -q https://github.com/simd-everywhere/simde/archive/refs/tags/v${SIMDE_
 WORKDIR /app
 COPY . .
 
-# compile downloading htslib and boost
+# compile downloading htslib and boost: mu-PBWT tools and the upstream tools under original/
 RUN make
 
 # run image
@@ -37,6 +38,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
   libssl3 \
   zlib1g \
   libbz2-1.0 \
+  libdeflate0 \
   liblzma5 \
   libgomp1 \
   libstdc++6 \
@@ -49,13 +51,16 @@ WORKDIR /app
 # copy exes
 COPY --from=builder /app/boost ./boost
 COPY --from=builder /app/htslib ./htslib
-COPY --from=builder /app/chunk/bin ./chunk/bin
-COPY --from=builder /app/concordance/bin ./concordance/bin
-COPY --from=builder /app/ligate/bin ./ligate/bin
 COPY --from=builder /app/phase/bin ./phase/bin
 COPY --from=builder /app/split_reference/bin ./split_reference/bin
-COPY --from=builder /app/GLIMPSE2_simulate_bams_static ./GLIMPSE2_simulate_bams_static
+COPY --from=builder /app/build_ser_from_bin/bin ./build_ser_from_bin/bin
+COPY --from=builder /app/build_ser_from_bcf/bin ./build_ser_from_bcf/bin
+COPY --from=builder /app/original/chunk/bin ./original/chunk/bin
+COPY --from=builder /app/original/ligate/bin ./original/ligate/bin
+COPY --from=builder /app/original/concordance/bin ./original/concordance/bin
+COPY --from=builder /app/original/phase/bin ./original/phase/bin
+COPY --from=builder /app/original/split_reference/bin ./original/split_reference/bin
 
-ENV PATH="/app/chunk/bin:/app/concordance/bin:/app/ligate/bin:/app/phase/bin:/app/split_reference/bin:${PATH}"
+ENV PATH="/app/phase/bin:/app/split_reference/bin:/app/build_ser_from_bin/bin:/app/build_ser_from_bcf/bin:/app/original/chunk/bin:/app/original/ligate/bin:/app/original/concordance/bin:${PATH}"
 
 ENTRYPOINT ["/bin/bash"]
