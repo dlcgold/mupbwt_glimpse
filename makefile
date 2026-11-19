@@ -1,5 +1,5 @@
 PROJECTS = phase split_reference build_ser_from_bin build_ser_from_bcf
-ORIGINAL = chunk ligate concordance phase split_reference
+UPSTREAM = chunk ligate concordance
 HTSLIB = htslib/libhts.a
 BOOST_LIBS = \
 	boost/lib/libboost_iostreams.so \
@@ -8,12 +8,12 @@ BOOST_LIBS = \
 
 ifeq ($(DNANEXUS),1)
 DEPS =
-ORIGINAL_TARGET = system
-ORIGINAL_ENV =
+UPSTREAM_TARGET = system
+UPSTREAM_ENV =
 else
 DEPS = $(HTSLIB) $(BOOST_LIBS)
-ORIGINAL_TARGET = docker
-ORIGINAL_ENV = \
+UPSTREAM_TARGET = docker
+UPSTREAM_ENV = \
 	HTSLIB_INC=$(CURDIR)/htslib \
 	HTSLIB_LIB=$(CURDIR)/htslib/libhts.a \
 	BOOST_INC=$(CURDIR)/boost/include \
@@ -22,19 +22,21 @@ ORIGINAL_ENV = \
 	BOOST_LIB_SE=$(CURDIR)/boost/lib/libboost_serialization.a
 endif
 
-.PHONY: all clean deps original $(PROJECTS) $(addprefix original-,$(ORIGINAL))
+.PHONY: all clean deps upstream $(PROJECTS) $(addprefix upstream-,$(UPSTREAM))
 
-all: deps $(PROJECTS) original
+all: deps $(PROJECTS) upstream
 
 deps: $(DEPS)
+
+$(PROJECTS) $(addprefix upstream-,$(UPSTREAM)): | deps
 
 $(PROJECTS):
 	$(MAKE) -C $@ $(COMPILATION_ENV)
 
-original: $(addprefix original-,$(ORIGINAL))
+upstream: $(addprefix upstream-,$(UPSTREAM))
 
-$(addprefix original-,$(ORIGINAL)):
-	$(MAKE) -C original/$(patsubst original-%,%,$@) $(ORIGINAL_TARGET) $(ORIGINAL_ENV)
+$(addprefix upstream-,$(UPSTREAM)):
+	$(MAKE) -C $(patsubst upstream-%,%,$@) $(UPSTREAM_TARGET) $(UPSTREAM_ENV)
 
 $(HTSLIB):
 	wget https://github.com/samtools/htslib/releases/download/1.16/htslib-1.16.tar.bz2
@@ -43,7 +45,7 @@ $(HTSLIB):
 	cd htslib && make
 	rm -f htslib-1.16.tar.bz2
 
-$(BOOST_LIBS):
+$(BOOST_LIBS) &:
 	wget https://archives.boost.io/release/1.73.0/source/boost_1_73_0.tar.bz2
 	tar -xjf boost_1_73_0.tar.bz2
 	cd boost_1_73_0 && \
@@ -58,6 +60,6 @@ clean:
 	for dir in $(PROJECTS); do \
 		$(MAKE) clean -C $$dir; \
 	done
-	for dir in $(ORIGINAL); do \
-		$(MAKE) clean -C original/$$dir; \
+	for dir in $(UPSTREAM); do \
+		$(MAKE) clean -C $$dir; \
 	done

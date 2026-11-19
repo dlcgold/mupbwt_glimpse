@@ -27,7 +27,7 @@ RUN wget -q https://github.com/simd-everywhere/simde/archive/refs/tags/v${SIMDE_
 WORKDIR /app
 COPY . .
 
-# compile downloading htslib and boost: mu-PBWT tools and the upstream tools under original/
+# compile downloading htslib and boost: mu-PBWT tools and upstream GLIMPSE chunk/ligate/concordance
 RUN make
 
 # run image
@@ -55,12 +55,10 @@ COPY --from=builder /app/phase/bin ./phase/bin
 COPY --from=builder /app/split_reference/bin ./split_reference/bin
 COPY --from=builder /app/build_ser_from_bin/bin ./build_ser_from_bin/bin
 COPY --from=builder /app/build_ser_from_bcf/bin ./build_ser_from_bcf/bin
-COPY --from=builder /app/original/chunk/bin ./original/chunk/bin
-COPY --from=builder /app/original/ligate/bin ./original/ligate/bin
-COPY --from=builder /app/original/concordance/bin ./original/concordance/bin
-COPY --from=builder /app/original/phase/bin ./original/phase/bin
-COPY --from=builder /app/original/split_reference/bin ./original/split_reference/bin
+COPY --from=builder /app/chunk/bin ./chunk/bin
+COPY --from=builder /app/ligate/bin ./ligate/bin
+COPY --from=builder /app/concordance/bin ./concordance/bin
 
-ENV PATH="/app/phase/bin:/app/split_reference/bin:/app/build_ser_from_bin/bin:/app/build_ser_from_bcf/bin:/app/original/chunk/bin:/app/original/ligate/bin:/app/original/concordance/bin:${PATH}"
+ENV PATH="/app/phase/bin:/app/split_reference/bin:/app/build_ser_from_bin/bin:/app/build_ser_from_bcf/bin:/app/chunk/bin:/app/ligate/bin:/app/concordance/bin:${PATH}"
 
 ENTRYPOINT ["/bin/bash"]
