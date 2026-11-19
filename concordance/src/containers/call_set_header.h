@@ -36,8 +36,17 @@ public:
 	int N, L, D;
 	float T;
 	bool use_subset_samples;
-	std::set < std::string > subset_samples_set;
 	std::vector < std::string > subset_samples;
+	// Truth-side sample ID per row of subset_samples. When --samples provides
+	// only one column for a row, the entry equals the imputed-side ID. When
+	// --samples is not provided, this is populated alongside subset_samples
+	// with identical values during readData initialisation.
+	std::vector < std::string > subset_samples_truth;
+	// For each row i of subset_samples, the column index within the truth-subset
+	// FORMAT arrays (e.g. dp_arr_t[imputed_to_truth_col[i]],
+	// pl_arr_t[ploidy_t_record * imputed_to_truth_col[i]]). Multiple imputed
+	// rows share a column when they alias the same truth sample.
+	std::vector < int > imputed_to_truth_col;
 
 	std::vector < std::string > samples;
 	std::vector < double > bins;
@@ -156,24 +165,21 @@ public:
 	void computeCalibration(std::string output);
 };
 
+// Bin b holds max(GP) in [b/N_BIN_CAL, (b+1)/N_BIN_CAL), the range writeData labels it with; the
+// last bin also holds GP = 1. The small offset keeps 3-decimal GPs that sit on a bin edge (e.g.
+// 0.53, parsed as 0.52999997f) in the bin that starts there.
 inline
 int call_set::getCalibrationBin(float gp0, float gp1) {
 	float maxv = 0.0f;
 	if (gp0 > maxv) { maxv = gp0; }
 	if (gp1 > maxv) { maxv = gp1; }
-	return (int)trunc(maxv * (N_BIN_CAL-1));
+	return std::min((int)(maxv * N_BIN_CAL + 1e-3f), N_BIN_CAL-1);
 }
 
 inline
 int call_set::getCalibrationBin(float gp0, float gp1, float gp2) {
 	//should not be affected by ploidy: gp1=gp2 with ploidy=1
-	/*
-	float maxv = 0.0f;
-	if (gp0 > maxv) maxv = gp0;
-	if (gp1 > maxv) maxv = gp1;
-	if (gp2 > maxv) maxv = gp2;
-	*/
-	return (int)trunc(fmaxf(gp0, fmaxf(gp1, gp2)) * (N_BIN_CAL-1));
+	return std::min((int)(fmaxf(gp0, fmaxf(gp1, gp2)) * N_BIN_CAL + 1e-3f), N_BIN_CAL-1);
 }
 
 inline

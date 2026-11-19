@@ -37,15 +37,35 @@ std::map<int, std::string> fploidy_to_msg = {
 };
 
 
+// Returns a copy of the first record of fname within region (to be freed with bcf_destroy), or
+// nullptr if the region holds none. It uses its own reader so that the main synced reader is
+// never rewound: bcf_sr_seek(sr, NULL, 0) keeps the records the readers have already buffered,
+// returns them first and then again when the region restarts.
+static bcf1_t * first_record_in_region(const std::string & fname, const std::string & region)
+{
+	bcf_srs_t * sr = bcf_sr_init();
+	sr->require_index = 1;
+	bcf_sr_set_regions(sr, region.c_str(), 0);
+	if (!bcf_sr_add_reader(sr, fname.c_str())) vrb.error("Failed to open file [" + fname + "]: " + std::string(bcf_sr_strerror(sr->errnum)));
+	bcf1_t * line = bcf_sr_next_line(sr) ? bcf_dup(bcf_sr_get_line(sr, 0)) : nullptr;
+	if (sr->errnum) vrb.error("Error reading [" + fname + "]: " + std::string(bcf_sr_strerror(sr->errnum)));
+	bcf_sr_destroy(sr);
+	return line;
+}
+
 void call_set::readData(std::vector < std::string > & ftruth, std::vector < std::string > & festimated, std::vector < std::string > & ffrequencies, std::vector < std::string > & region, bpo::variables_map& options, const float gp_filter, const std::string out_filename) {
 	tac.clock();
 	int n_true_samples, n_esti_samples;
 	unsigned long int n_variants_all_chromosomes = 0;
 	//std::vector < int > mappingT, mappingE;
-	char** isec_samples_names = NULL;
-	int* truth_imap;
-	int* estimated_imap;
-	int n_isec_samples_names = 0;
+	// Imputed-side: one entry per imputed sample (length N).
+	char** estimated_subset_names = NULL;
+	int n_estimated_subset_names = 0;
+	int* estimated_imap = NULL;
+	// Truth-side: one entry per *unique* truth alias (length K, possibly < N).
+	char** truth_subset_names = NULL;
+	int n_truth_subset_names = 0;
+	int* truth_imap = NULL;
 
 	std::string af_tag = options["af-tag"].as<std::string>();
 	const bool gt_validation = options.count("gt-val");
@@ -61,6 +81,11 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 
 	stats2D r2_variant;
 	output_file out_file_r2_sites("");
+
+	// The BCF per-site outputs are written with the frequency file's header, so they can only hold
+	// the records of a single --input line. The r2 text output covers every line.
+	if ((out_rej_sites || out_conc_sites || out_disc_sites) && ftruth.size() > 1)
+		vrb.error("--out-rej-sites, --out-conc-sites and --out-disc-sites support a single --input line, but " + stb.str(ftruth.size()) + " were given. Run one --input line at a time to get these outputs.");
 
 	for (int f = 0 ; f < ftruth.size() ; f ++)
 	{
@@ -107,41 +132,90 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 		if (f == 0)
 		{
 			std::unordered_set<std::string> truth_samples_names_set;
-			std::unordered_set<std::string> isec_samples_names_set;
+			std::unordered_set<std::string> esti_samples_names_set;
 
 			int n_true_samples_file = bcf_hdr_nsamples(sr->readers[0].header);
 			int n_esti_samples_file = bcf_hdr_nsamples(sr->readers[1].header);
 			for (int i = 0 ; i < n_true_samples_file ; i ++) truth_samples_names_set.insert(sr->readers[0].header->samples[i]);
-			for (int i = 0 ; i < n_esti_samples_file ; i ++)
-				if (truth_samples_names_set.find(sr->readers[1].header->samples[i]) != truth_samples_names_set.end())
-					isec_samples_names_set.insert(sr->readers[1].header->samples[i]);
+			for (int i = 0 ; i < n_esti_samples_file ; i ++) esti_samples_names_set.insert(sr->readers[1].header->samples[i]);
 
-			if (!options.count("samples")) subset_samples.assign(isec_samples_names_set.begin(),isec_samples_names_set.end());
-			for (int i = 0; i < subset_samples.size() ; i ++)
+			// No --samples: take the imputed∩truth intersection 1:1 (truth ID == imputed ID for every row).
+			if (!options.count("samples"))
 			{
-				if (isec_samples_names_set.find(subset_samples[i]) != isec_samples_names_set.end())
+				for (int i = 0 ; i < n_esti_samples_file ; i ++)
 				{
-					isec_samples_names = (char**) realloc(isec_samples_names, (n_isec_samples_names+1)*sizeof(const char*));
-					isec_samples_names[n_isec_samples_names] = strdup(subset_samples[i].c_str());
-					n_isec_samples_names++;
+					const std::string esti_id = sr->readers[1].header->samples[i];
+					if (truth_samples_names_set.count(esti_id))
+					{
+						subset_samples.push_back(esti_id);
+						subset_samples_truth.push_back(esti_id);
+					}
 				}
 			}
-			if (n_isec_samples_names == 0) vrb.error("No sample in common between datasets");
 
-			truth_imap = (int*)malloc(n_isec_samples_names * sizeof(int));
-			estimated_imap = (int*)malloc(n_isec_samples_names * sizeof(int));
+			// Filter rows whose imputed ID is missing from the imputed VCF or whose
+			// (possibly aliased) truth ID is missing from the truth VCF.
+			std::vector<std::string> kept_imputed, kept_truth;
+			for (size_t i = 0; i < subset_samples.size(); i++)
+			{
+				const bool in_imputed = esti_samples_names_set.count(subset_samples[i]) > 0;
+				const bool in_truth = truth_samples_names_set.count(subset_samples_truth[i]) > 0;
+				if (in_imputed && in_truth)
+				{
+					kept_imputed.push_back(subset_samples[i]);
+					kept_truth.push_back(subset_samples_truth[i]);
+				}
+				else if (!in_imputed) vrb.warning("Sample [" + subset_samples[i] + "] from --samples is not in the imputed file [" + festimated[f] + "]; skipping it.");
+				else vrb.warning("Validation sample [" + subset_samples_truth[i] + "] for imputed sample [" + subset_samples[i] + "] is not in the validation file [" + ftruth[f] + "]; skipping it.");
+			}
+			subset_samples.swap(kept_imputed);
+			subset_samples_truth.swap(kept_truth);
+			if (subset_samples.empty()) vrb.error("No sample in common between datasets");
 
-			hdr_truth = bcf_hdr_subset(sr->readers[0].header, n_isec_samples_names, isec_samples_names, truth_imap);
-			hdr_estimated = bcf_hdr_subset(sr->readers[1].header, n_isec_samples_names, isec_samples_names, estimated_imap);
+			// Build the estimated-side name array: one entry per imputed row (unique by construction).
+			n_estimated_subset_names = subset_samples.size();
+			estimated_subset_names = (char**) malloc(n_estimated_subset_names * sizeof(char*));
+			for (int i = 0; i < n_estimated_subset_names; i++)
+				estimated_subset_names[i] = strdup(subset_samples[i].c_str());
 
-			if ( !hdr_truth || !hdr_estimated || bcf_hdr_nsamples(hdr_truth) != bcf_hdr_nsamples(hdr_estimated) || bcf_hdr_nsamples(hdr_truth)<=0) vrb.error("Error occurred while subsetting truth samples");
+			// Build the truth-side unique-name array and the imputed -> truth-column mapping.
+			std::unordered_map<std::string,int> truth_alias_to_col;
+			imputed_to_truth_col.clear();
+			imputed_to_truth_col.reserve(subset_samples_truth.size());
+			for (size_t i = 0; i < subset_samples_truth.size(); i++)
+			{
+				const std::string & tid = subset_samples_truth[i];
+				auto it = truth_alias_to_col.find(tid);
+				if (it == truth_alias_to_col.end())
+				{
+					int col = (int) truth_alias_to_col.size();
+					truth_alias_to_col[tid] = col;
+					imputed_to_truth_col.push_back(col);
+				}
+				else imputed_to_truth_col.push_back(it->second);
+			}
+			n_truth_subset_names = (int) truth_alias_to_col.size();
+			truth_subset_names = (char**) malloc(n_truth_subset_names * sizeof(char*));
+			for (auto & kv : truth_alias_to_col)
+				truth_subset_names[kv.second] = strdup(kv.first.c_str());
 
-			n_true_samples = bcf_hdr_nsamples(hdr_truth);
-			n_esti_samples = bcf_hdr_nsamples(hdr_estimated);
+			truth_imap     = (int*) malloc(n_truth_subset_names * sizeof(int));
+			estimated_imap = (int*) malloc(n_estimated_subset_names * sizeof(int));
 
-			N=n_true_samples;
+			hdr_truth     = bcf_hdr_subset(sr->readers[0].header, n_truth_subset_names,     truth_subset_names,     truth_imap);
+			hdr_estimated = bcf_hdr_subset(sr->readers[1].header, n_estimated_subset_names, estimated_subset_names, estimated_imap);
+
+			if (!hdr_truth || !hdr_estimated
+				|| bcf_hdr_nsamples(hdr_truth)     != n_truth_subset_names
+				|| bcf_hdr_nsamples(hdr_estimated) != n_estimated_subset_names)
+				vrb.error("Error occurred while subsetting samples");
+
+			n_true_samples = bcf_hdr_nsamples(hdr_truth);     // = K (unique truth IDs)
+			n_esti_samples = bcf_hdr_nsamples(hdr_estimated); // = N (imputed rows)
+
+			N=n_esti_samples;
 			samples.reserve(N);
-			for (int i=0; i<N;++i) samples.push_back(std::string(hdr_truth->samples[i]));
+			for (int i=0; i<N;++i) samples.push_back(std::string(hdr_estimated->samples[i]));
 
 /*
 			////////////////////////////////////////////////////////////////////////////////
@@ -191,17 +265,15 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 			}
 			else
 			{
-				int nset=0;
-				while (!bcf_sr_has_line(sr,1)) bcf_sr_next_line (sr);
-
-				if (!bcf_sr_has_line(sr,1)) vrb.error("No marker found in the intersection for the imputed file.");
+				bcf1_t * line = first_record_in_region(festimated[f], region[f]);
+				if (!line) vrb.error("No marker found in region [" + region[f] + "] of the imputed file [" + festimated[f] + "].");
 
 				int * gt_fields = NULL;
 				int n_gt_fields = 0;
 
-				bcf1_t * line =  bcf_sr_get_line(sr, 1);
-				bcf_subset(hdr_estimated, line, n_isec_samples_names, estimated_imap);
+				bcf_subset(hdr_estimated, line, n_estimated_subset_names, estimated_imap);
 				int ngt = bcf_get_genotypes(hdr_estimated, line, &gt_fields, &n_gt_fields);
+				if (ngt <= 0) vrb.error("No FORMAT/GT in the first record of region [" + region[f] + "] of the imputed file [" + festimated[f] + "], which is needed to read the ploidy of each sample.");
 				const int line_max_ploidy = ngt/n_esti_samples;
 				assert(line_max_ploidy==ploidy); //we do not allow missing data
 				int j=0;
@@ -214,7 +286,7 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 					++j;
 				}
 				//assert(n_diploid > 0 && n_haploid > 0);
-				bcf_sr_seek (sr, NULL, 0);
+				bcf_destroy(line);
 
 				if (n_diploid == 0 && n_haploid == 0) vrb.error("No samples found.");
 				free(gt_fields);
@@ -225,10 +297,11 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 				std::vector<int> ac_bin = {4,16,80,400,1000,2000,5000,10000,20000,50000,100000,200000,500000,1000000,2000000,5000000,10000000,20000000,50000000,100000000};
 				if (options.count("ac-bins")) ac_bin = options["ac-bins"].as < std::vector < int > > ();
 
-				int nset=0;
-				while (! bcf_sr_has_line(sr,2)) bcf_sr_next_line (sr);
+				bcf1_t * line = first_record_in_region(ffrequencies[f], region[f]);
+				if (!line) vrb.error("No record found in region [" + region[f] + "] of the frequency file [" + ffrequencies[f] + "], which is needed to read INFO/AN for --allele-counts/--ac-bins.");
 				int *itmp=NULL, mitmp=0, tret=0;
-				tret = bcf_get_info_int32(sr->readers[2].header, bcf_sr_get_line(sr,2), "AN", &itmp, &mitmp);
+				tret = bcf_get_info_int32(sr->readers[2].header, line, "AN", &itmp, &mitmp);
+				bcf_destroy(line);
 			    if ( tret==1 && itmp[0] > 0)
 			    {
 			    	int AN = itmp[0] / ploidy;
@@ -244,7 +317,6 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 
 			    	L=bins.size()-1;
 			    } else vrb.error("ERROR reading AN field required for --allele-counts option");
-				bcf_sr_seek (sr, NULL, 0);
 				if (itmp) free(itmp);
 			}
 
@@ -342,8 +414,12 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 		}
 		else
 		{
-			hdr_truth = bcf_hdr_subset(sr->readers[0].header, n_isec_samples_names, isec_samples_names, truth_imap);
-			hdr_estimated = bcf_hdr_subset(sr->readers[1].header, n_isec_samples_names, isec_samples_names, estimated_imap);
+			hdr_truth     = bcf_hdr_subset(sr->readers[0].header, n_truth_subset_names,     truth_subset_names,     truth_imap);
+			hdr_estimated = bcf_hdr_subset(sr->readers[1].header, n_estimated_subset_names, estimated_subset_names, estimated_imap);
+			if (!hdr_truth || !hdr_estimated
+				|| bcf_hdr_nsamples(hdr_truth)     != n_truth_subset_names
+				|| bcf_hdr_nsamples(hdr_estimated) != n_estimated_subset_names)
+				vrb.error("Error occurred while subsetting samples in [" + ftruth[f] + "] / [" + festimated[f] + "] (a sample present in the first input file is missing here)");
 		}
 
 		const int ploidyP1 = ploidy + 1;
@@ -381,16 +457,17 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 		htsFile * out_fp_disc_sites = nullptr;
 		bcf_hdr_t * out_hdr_disc_sites = nullptr;
 
-		if (out_r2_per_site)
+		// Opened at the first line, once its inputs have been checked, and closed after the last.
+		if (out_r2_per_site && f == 0)
 		{
 			std::string out_filename_full = out_filename + "_r2_sites.txt.gz";
 			out_file_r2_sites.open(out_filename_full);
 			out_file_r2_sites << "chr\tpos\trsid\told_rsid\tallele1\tallele2\tmaf\tinfo\tds_r2\n";
 		}
+		const std::string out_file_format = "wb" + std::to_string(options["compression-level"].as < int > ());
 		if (out_rej_sites)
 		{
 			std::string out_filename_full = out_filename + "_rej_sites.bcf";
-			std::string out_file_format = "wb";
 			out_fp_rej_sites = hts_open(out_filename_full.c_str(),out_file_format.c_str());
 			if (nthreads > 1) hts_set_threads(out_fp_rej_sites, nthreads);
 			out_hdr_rej_sites = bcf_hdr_dup(sr->readers[2].header);
@@ -399,7 +476,6 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 		if (out_conc_sites)
 		{
 			std::string out_filename_full = out_filename + "_conc_sites.bcf";
-			std::string out_file_format = "wb";
 			out_fp_conc_sites = hts_open(out_filename_full.c_str(),out_file_format.c_str());
 			if (nthreads > 1) hts_set_threads(out_fp_conc_sites, nthreads);
 			out_hdr_conc_sites = bcf_hdr_dup(sr->readers[2].header);
@@ -408,7 +484,6 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 		if (out_disc_sites)
 		{
 			std::string out_filename_full = out_filename + "_disc_sites.bcf";
-			std::string out_file_format = "wb";
 			out_fp_disc_sites = hts_open(out_filename_full.c_str(),out_file_format.c_str());
 			if (nthreads > 1) hts_set_threads(out_fp_disc_sites, nthreads);
 			out_hdr_disc_sites = bcf_hdr_dup(sr->readers[2].header);
@@ -434,8 +509,8 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 					line_t =  bcf_sr_get_line(sr, 0);
 					line_e =  bcf_sr_get_line(sr, 1);
 
-					bcf_subset(hdr_truth, line_t, n_isec_samples_names, truth_imap);
-					bcf_subset(hdr_estimated, line_e, n_isec_samples_names, estimated_imap);
+					bcf_subset(hdr_truth,     line_t, n_truth_subset_names,     truth_imap);
+					bcf_subset(hdr_estimated, line_e, n_estimated_subset_names, estimated_imap);
 
 				    naf_f = bcf_get_info_float(sr->readers[2].header, line_f, af_tag.c_str(), &af_ptr, &naf_arr_f);
 
@@ -473,7 +548,14 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 					else ngp_e = bcf_get_format_float(hdr_estimated, line_e, "GP", &gp_arr_e, &ngp_arr_e);
 
 					long int n_validation_marker=0;
-					if ((naf_f==1)&&(npl_t%n_true_samples==0)&&(gt_target||((nds_e==n_esti_samples)&&(ngp_e%n_esti_samples==0)))&&((ndp_t==n_true_samples) || D==0))
+					// htslib returns a negative count when a field is missing (-1 % 1, -2 % 2, -3 % 1 and -3 % 3
+					// are all 0), so each count must be positive, and each sample's values must cover the
+					// indices read below: GT up to [ploidy-1], PL and GP up to [ploidy].
+					const bool truth_ok = npl_t > 0 && npl_t % n_true_samples == 0 && npl_t / n_true_samples >= (gt_validation ? ploidy : ploidyP1);
+					const bool esti_ok = ngt_e > 0 && ngt_e % n_esti_samples == 0 && ngt_e / n_esti_samples >= ploidy
+							&& (gt_target || (nds_e == n_esti_samples && ngp_e > 0 && ngp_e % n_esti_samples == 0 && ngp_e / n_esti_samples >= ploidyP1));
+					const bool dp_ok = ndp_t == n_true_samples || D == 0;
+					if (naf_f == 1 && truth_ok && esti_ok && dp_ok)
 					{
 						// Meta data for variant
 						const int ploidy_gt_e_record=ngt_e/n_esti_samples;
@@ -515,10 +597,15 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 						if (grp_bin >= 0)
 						{	// Do this variant fall within a given frequency bin?
 
-							// Read Truth
-							for(int i = 0 ; i < n_true_samples ; i ++)
+							// Iterate over imputed rows (N) rather than truth columns (K):
+							// when K < N, multiple imputed rows alias the same truth column
+							// and each needs its own per-row write into GLs/DPs below.
+							// DP is used only when --min-val-dp > 0 (getTruth applies the threshold);
+							// the site check above guarantees FORMAT/DP is present in that case.
+							for(int i = 0 ; i < N ; i ++)
 							{
-								const int index = ploidy_t_record*i;//ploidy
+								const int t_col = imputed_to_truth_col[i];
+								const int index = ploidy_t_record*t_col;
 								const int gpos=ind2gpos[i];
 
 								if (gt_validation)
@@ -540,7 +627,7 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 										GLs[gpos+1] = (gt == 1);
 										GLs[gpos+ploidy] = gt == ploidy;
 									}
-									DPs[i] = D > 0 ? dp_arr_t[i] : 0;
+									DPs[i] = D > 0 ? dp_arr_t[t_col] : 0;
 								}
 								else
 								{
@@ -558,7 +645,7 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 										GLs[gpos+1] = unphred[std::min(pl_arr_t[index+1],255)];
 										GLs[gpos+ploidy] = unphred[std::min(pl_arr_t[index+ploidy],255)];
 									}
-									DPs[i] = D > 0 ? dp_arr_t[i] : 0;
+									DPs[i] = D > 0 ? dp_arr_t[t_col] : 0;
 								}
 								if (flip) { float_swap = GLs[gpos+ploidy]; GLs[gpos+ploidy] = GLs[gpos+0]; GLs[gpos+0] = float_swap; }
 							}
@@ -590,7 +677,9 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 									{
 										if (use_gp_filter)
 										{
-											if ( (pl_arr_e[ploidy_e_record*i+0]==bcf_int32_missing || pl_arr_e[ploidy_e_record*i+1]==bcf_int32_missing || pl_arr_e[ploidy_e_record*i+ploidy]==bcf_int32_missing)
+											// A target record without FORMAT/PL (ngp_e = -3) or with too few values per sample.
+											if ( ploidy_e_record < ploidyP1
+													|| (pl_arr_e[ploidy_e_record*i+0]==bcf_int32_missing || pl_arr_e[ploidy_e_record*i+1]==bcf_int32_missing || pl_arr_e[ploidy_e_record*i+ploidy]==bcf_int32_missing)
 													|| (pl_arr_e[ploidy_e_record*i+0]==bcf_int32_vector_end || pl_arr_e[ploidy_e_record*i+1]==bcf_int32_vector_end || pl_arr_e[ploidy_e_record*i+ploidy]==bcf_int32_vector_end)
 													|| (pl_arr_e[ploidy_e_record*i+0]<0) || (pl_arr_e[ploidy_e_record*i+1]<0) || (pl_arr_e[ploidy_e_record*i+ploidy]<0))
 											{
@@ -620,7 +709,7 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 									else
 									{
 
-										if (std::isnan( gp_arr_e[ploidy_e_record*i+0]) || std::isnan( gp_arr_e[ploidy_e_record*i+1]) || std::isnan( gp_arr_e[ploidy_e_record*i+2]))
+										if (std::isnan( gp_arr_e[ploidy_e_record*i+0]) || std::isnan( gp_arr_e[ploidy_e_record*i+1]) || std::isnan( gp_arr_e[ploidy_e_record*i+ploidy]))
 										{
 											if (!nan_printed)
 											{
@@ -822,6 +911,9 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 					++n_disc_var_af;
 			}
 		}
+		//A nonzero errnum means the read loop stopped on a read failure, not a clean EOF.
+		//Without this check a truncated/dropped (e.g. cloud-streamed) input would look like
+		//the file simply ended, silently skewing the concordance statistics.
 		if (sr->errnum) vrb.error("Error reading VCF/BCF mid-stream while reading inputs for region [" + region[f] + "]: " + std::string(bcf_sr_strerror(sr->errnum)) + ". One of the truth/estimated/frequency files may be incomplete or, if cloud-streamed, the read dropped.");
 		if (itmp) free(itmp);
 		free(af_ptr);
@@ -835,7 +927,6 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 		bcf_hdr_destroy(hdr_estimated);
 		bcf_sr_destroy(sr);
 
-		if (out_r2_per_site) out_file_r2_sites.close();
 		if (out_rej_sites)
 		{
 			bcf_hdr_destroy(out_hdr_rej_sites);
@@ -854,7 +945,8 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 		n_variants_all_chromosomes += nvariantvalall;
 		if (afnobin > 0) vrb.bullet("#variants discarded as no associated bin can be set (e.g. AF<=0 or AF>1 or no group) = " + stb.str(afnobin));
 		if (nvarianttot==0) vrb.error("No variant found in the intersection of files. Files are probably not aligned correctly. Please verify that chromosome names and regions are matching for the imputed, validation and allele frequency file.");
-		if (nvariantvalall==0) vrb.error("No usable validation variant has been found in the intersection of files. Verify that the validation file has FORMAT/PL and FORMAT/DP fields defined, the imputed file has FORMAT/DS and FORMAT/GP fields defined in the same region and the allele frequency file has the INFO/AF (or --af-tag) field defined at every marker.");
+		const std::string esti_fields = !gt_target ? "FORMAT/GT, FORMAT/DS and FORMAT/GP fields" : (use_gp_filter ? "FORMAT/GT and FORMAT/PL fields (PL for --min-tar-gp)" : "FORMAT/GT field");
+		if (nvariantvalall==0) vrb.error("No usable validation variant has been found in the intersection of files. Verify that the validation file has FORMAT/PL (FORMAT/GT with --gt-val) and FORMAT/DP fields defined, the imputed file has " + esti_fields + " defined in the same region and the allele frequency file has the INFO/AF (or --af-tag) field defined at every marker, and that the validation and imputed genotypes have the same ploidy.");
 
 		vrb.print("");
 		vrb.bullet("#variants in the overlap (biallelic SNPs and indels) = " + stb.str(nvarianttot));
@@ -897,10 +989,13 @@ void call_set::readData(std::vector < std::string > & ftruth, std::vector < std:
 		vrb.bullet("Error rate in this file = " + ra + "% [SNPs = " + rs + "%, indels = " + ri + "%)]");
 
 	}
+	if (out_r2_per_site) out_file_r2_sites.close();
 	free(truth_imap);
 	free(estimated_imap);
-	for(int i = 0; i < n_isec_samples_names; i++) free(isec_samples_names[i]);
-	if (isec_samples_names) free(isec_samples_names);
+	for (int i = 0; i < n_estimated_subset_names; i++) free(estimated_subset_names[i]);
+	if (estimated_subset_names) free(estimated_subset_names);
+	for (int i = 0; i < n_truth_subset_names; i++) free(truth_subset_names[i]);
+	if (truth_subset_names) free(truth_subset_names);
 
 	vrb.print("");
 	vrb.bullet("Total #variants = " + stb.str(n_variants_all_chromosomes));

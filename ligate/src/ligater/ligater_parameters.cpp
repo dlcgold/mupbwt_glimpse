@@ -31,16 +31,16 @@ void ligater::declare_options() {
 	opt_base.add_options()
 			("help", "Produces help message")
 			("seed", bpo::value<int>()->default_value(15052011), "Seed of the random number generator")
-			("threads", bpo::value<int>()->default_value(1), "Number of threads");
+			("threads,T", bpo::value<int>()->default_value(1), "Number of threads");
 
 	bpo::options_description opt_input ("Input files");
 	opt_input.add_options()
-			("input", bpo::value < std::string >(), "Text file containing all VCF/BCF to ligate, one file per line");
+			("input,I", bpo::value < std::string >(), "Text file containing all VCF/BCF to ligate, one file per line");
 
 	bpo::options_description opt_output ("Output files");
 	opt_output.add_options()
 			("output,O", bpo::value< std::string >(), "Output ligated (phased) file in VCF/BCF format")
-			("no-index", "If specified, the ligated VCF/BCF is not indexed by GLIMPSE2 for random access to genomic regions");
+			("compression-level", bpo::value< int >()->default_value(6), "Compression level for VCF/BCF output: 0 = none (still BGZF-framed and indexable), 1 = fastest, 9 = smallest. Ignored for plain .vcf output.")
 			("log", bpo::value< std::string >(), "Log file");
 
 	descriptions.add(opt_base).add(opt_input).add(opt_output);
@@ -50,7 +50,7 @@ void ligater::parse_command_line(std::vector < std::string > & args) {
 	try {
 		bpo::store(bpo::command_line_parser(args).options(descriptions).run(), options);
 		bpo::notify(options);
-	} catch ( const boost::program_options::error& e ) { std::cerr << "Error parsing command line arguments: " << std::string(e.what()) << std::endl; exit(0); }
+	} catch ( const boost::program_options::error& e ) { std::cerr << "Error parsing command line arguments: " << std::string(e.what()) << std::endl; exit(1); }
 
 	vrb.title("[GLIMPSE2] Ligate multiple output files into chromosome-wide files");
 	vrb.bullet("Authors              : Simone RUBINACCI & Olivier DELANEAU, University of Lausanne");
@@ -78,6 +78,18 @@ void ligater::check_options() {
 
 	if (options["threads"].as < int > () < 1)
 		vrb.error("Number of threads is a strictly positive number.");
+
+	const int compression_level = options["compression-level"].as < int > ();
+	if (compression_level < 0 || compression_level > 9)
+		vrb.error("Compression level must be between 0 and 9.");
+
+	const std::string fname = options["output"].as < std::string > ();
+	out_file_format = "w";
+	out_file_type = OFILE_VCFU;
+	if (fname.size() > 6 && fname.substr(fname.size()-6) == "vcf.gz") { out_file_format = "wz"; out_file_type = OFILE_VCFC; }
+	if (fname.size() > 3 && fname.substr(fname.size()-3) == "bcf") { out_file_format = "wb"; out_file_type = OFILE_BCFC; }
+	//htslib takes the compression level as a digit in the mode string
+	if (out_file_type != OFILE_VCFU) out_file_format += std::to_string(compression_level);
 }
 
 void ligater::verbose_files() {
@@ -86,7 +98,7 @@ void ligater::verbose_files() {
 	vrb.title("Files:");
 	vrb.bullet("Input LIST     : [" + options["input"].as < std::string > () + "]");
 	vrb.bullet("Output VCF     : [" + options["output"].as < std::string > () + "]");
-	vrb.bullet("Index output   : [" + no_yes[!options.count("no-index")] + "]");
+	if (out_file_type != OFILE_VCFU) vrb.bullet("Compression    : [level " + stb.str(options["compression-level"].as < int > ()) + "]");
 	if (options.count("log")) vrb.bullet("Output LOG    : [" + options["log"].as < std::string > () + "]");
 }
 

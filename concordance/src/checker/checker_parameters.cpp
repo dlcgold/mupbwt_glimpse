@@ -36,8 +36,8 @@ void checker::declare_options() {
 	bpo::options_description opt_input ("Input parameters");
 	opt_input.add_options()
 			("input", bpo::value< std::string >(), "File with four columns listing in order: regions frequencies validation and imputed dataset. For genome-wide concordance, add more lines specifying different chromosomes.")
-			("samples", bpo::value< std::string >(), "List of samples to process, one sample ID per line")
-			("gt-val", "Uses hard called genotypes rather than phread-scaled likelihoods for the validation dataset, reading them from FORMAT/GT field.")
+			("samples", bpo::value< std::string >(), "List of samples to process, one per line: the sample ID in the imputed file, optionally followed by the ID of the validation sample to compare it against (default: the same ID). Blank lines and lines starting with # are ignored.")
+			("gt-val", "Uses hard called genotypes rather than phred-scaled likelihoods for the validation dataset, reading them from FORMAT/GT field.")
 			("gt-tar", "Uses FORMAT/GT field to determine the best-guess genotype rather than the FORMAT/GP (default). FORMAT/DS are FORMAT/GP fields are still required for calibration and rsquared calculations.");
 
 
@@ -60,6 +60,7 @@ void checker::declare_options() {
 	bpo::options_description opt_output ("Output files");
 	opt_output.add_options()
 			("output,O", bpo::value< std::string >(), "Prefix of the output files (extensions are automatically added)")
+			("compression-level", bpo::value< int >()->default_value(6), "Compression level for the --out-rej-sites/--out-conc-sites/--out-disc-sites BCFs: 0 = none (still BGZF-framed and indexable), 1 = fastest, 9 = smallest.")
 			("log", bpo::value< std::string >(), "Log file");
 
 	descriptions.add(opt_base).add(opt_input).add(opt_algo).add(opt_output);
@@ -69,7 +70,7 @@ void checker::parse_command_line(std::vector < std::string > & args) {
 	try {
 		bpo::store(bpo::command_line_parser(args).options(descriptions).run(), options);
 		bpo::notify(options);
-	} catch ( const boost::program_options::error& e ) { std::cerr << "Error parsing command line arguments: " << std::string(e.what()) << std::endl; exit(0); }
+	} catch ( const boost::program_options::error& e ) { std::cerr << "Error parsing command line arguments: " << std::string(e.what()) << std::endl; exit(1); }
 
 	if (options.count("log") && !vrb.open_log(options["log"].as < std::string > ()))
 		vrb.error("Impossible to create log file [" + options["log"].as < std::string > () +"]");
@@ -97,6 +98,10 @@ void checker::check_options() {
 
 	if (options["threads"].as < int > () < 1)
 		vrb.error("Number of threads is a strictly positive number.");
+
+	const int compression_level = options["compression-level"].as < int > ();
+	if (compression_level < 0 || compression_level > 9)
+		vrb.error("Compression level must be between 0 and 9.");
 
 	//if (options.count("min-tar-gp") &&  options.count("gt-tar"))
 	//	vrb.error("Options --gt-tar and --min-tar-gp cannot be used together.");
@@ -171,4 +176,6 @@ void checker::verbose_options() {
 	vrb.bullet("Output rej. sites : " + no_yes[options.count("out-rej-sites")]);
 	vrb.bullet("Output conc sites : " + no_yes[options.count("out-conc-sites")]);
 	vrb.bullet("Output disc sites : " + no_yes[options.count("out-disc-sites")]);
+	if (options.count("out-rej-sites") || options.count("out-conc-sites") || options.count("out-disc-sites"))
+		vrb.bullet("BCF compression   : level " + stb.str(options["compression-level"].as < int > ()));
 }

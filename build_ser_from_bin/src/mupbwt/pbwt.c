@@ -129,16 +129,14 @@ void pbwt_build_af_finalize(pbwt *pbwt, pbwt_build_state *st) {
 
   for (size_t i = 0; i < pbwt->n_haps; i++) {
     if (i == 0) {
-      if (st->supp_pa_b[st->l_pa[i]].n == 0 ||
-          st->supp_pa_b[st->l_pa[i]].a[st->supp_pa_b[st->l_pa[i]].n - 1] !=
-              pbwt->n_haps) {
+      if (st->supp_b[st->l_pa[i]].n == 0 ||
+          st->supp_b[st->l_pa[i]].a[st->supp_b[st->l_pa[i]].n - 1] != st->c) {
         kv_push(uint32_t, st->supp_pa_b[st->l_pa[i]], pbwt->n_haps);
         kv_push(uint32_t, st->supp_da_b[st->l_pa[i]], 0);
       }
     } else {
-      if (st->supp_pa_b[st->l_pa[i]].n == 0 ||
-          st->supp_pa_b[st->l_pa[i]].a[st->supp_pa_b[st->l_pa[i]].n - 1] !=
-              st->l_pa[i - 1]) {
+      if (st->supp_b[st->l_pa[i]].n == 0 ||
+          st->supp_b[st->l_pa[i]].a[st->supp_b[st->l_pa[i]].n - 1] != st->c) {
         kv_push(uint32_t, st->supp_pa_b[st->l_pa[i]], st->l_pa[i - 1]);
         kv_push(uint32_t, st->supp_da_b[st->l_pa[i]], st->l_da[i]);
       }

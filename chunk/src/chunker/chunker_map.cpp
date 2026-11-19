@@ -35,15 +35,15 @@ long int chunker::interpolateCentiMorgan(const std::vector < long int > & pos_bp
 		i_locus ++;
 	}
 
-	//Set up middle positions using interpolation
+	//Set up middle positions using long interpolation
 	long int closest_pos = 1;
 	for (; i_locus < positions_mb.size() ; ) {
 		if (positions_cm[i_locus] == -1) {
 
-			//Find suitable interpolation interval
+			//Find suitable long interpolation long interval
 			while (positions_mb[i_locus] > pos_bp[closest_pos] && closest_pos < pos_bp.size()) closest_pos++;
 
-			//Interpolate
+			//long interpolate
 			if (closest_pos < pos_bp.size()) {
 				assert(positions_mb[i_locus] < pos_bp[closest_pos]);
 				assert(positions_mb[i_locus] > pos_bp[closest_pos-1]);
@@ -74,7 +74,7 @@ void chunker::setGeneticMap(const gmap_reader & readerGM, const std::multimap < 
 	positions_cm = std::vector<float>(positions_mb.size(), -1);
 	long int n_set = setCentiMorgan(readerGM.pos_bp, readerGM.pos_cm, map_positions, positions_cm);
 	long int n_interpolated = interpolateCentiMorgan(readerGM.pos_bp, readerGM.pos_cm, map_positions, positions_mb, positions_cm);
-	vrb.bullet("Map cM interpolation : [s=" + stb.str(n_set) + " / i=" + stb.str(n_interpolated) + "] (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
+	vrb.bullet("Map cM long interpolation : [s=" + stb.str(n_set) + " / i=" + stb.str(n_interpolated) + "] (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
 }
 
 void chunker::setGeneticMap(const std::multimap < long int, long int >& map_positions, const std::vector<long int>& positions_mb, std::vector<float>& positions_cm) {

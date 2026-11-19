@@ -64,11 +64,13 @@ void chunker::readData(std::string fmain, std::string region, long int nthreads)
 		else  vrb.error("Could not detect the file type as VCF or BCF: " + fmain);
 
 		seq = tbx ? tbx_seqnames(tbx, &nseq) : bcf_index_seqnames(idx, sr->readers[0].header, &nseq);
+		//uint64_t sum = 0;
 		for (i=0; i<nseq; i++)
 		{
 			if (seq[i] != region) continue;
 	        bcf_hrec_t *hrec = sr ? bcf_hdr_get_hrec(sr->readers[0].header, BCF_HL_CTG, "ID", seq[i], NULL) : NULL;
 	        int hkey = hrec ? bcf_hrec_find_key(hrec, "length") : -1;
+	        //printf("%s\t%s\t", seq[i], hkey<0?".":hrec->vals[hkey]);
 
 			if (hkey>=0) contig_len = atol(hrec->vals[hkey]);
 			if (contig_len <= 0) contig_len = 1248956422;
@@ -103,7 +105,7 @@ void chunker::readData(std::string fmain, std::string region, long int nthreads)
 			const bool is_common = MAF >= sparse_maf;
 
 			positions_all_mb.push_back(line_main->pos + 1);
-			map_positions_all.insert(std::pair < long int , long int> (line_main->pos + 1, positions_all_mb.size()-1));
+			map_positions_all.insert(std::pair < int , int> (line_main->pos + 1, positions_all_mb.size()-1));
 			all2common.push_back(n_comm_variants_cnt);
 			if (is_common)
 			{
@@ -113,6 +115,9 @@ void chunker::readData(std::string fmain, std::string region, long int nthreads)
 			}
 		}
 	}
+	//errnum is set on a read or parse failure, which otherwise ends the loop like the end of the file.
+	//A missing BGZF EOF marker also sets it, at open; htslib warns about that, so it is not an error.
+	if (sr->errnum && sr->errnum != no_eof) vrb.error("Error while reading [" + fmain + "]: " + std::string(bcf_sr_strerror(sr->errnum)));
 	bcf_sr_destroy(sr);
 	if (itmp) free(itmp);
 	if (vAC) free(vAC);

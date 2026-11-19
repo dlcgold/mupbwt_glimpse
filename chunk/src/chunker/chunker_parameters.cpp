@@ -31,7 +31,7 @@ void chunker::declare_options() {
 	opt_base.add_options()
 			("help", "Produces help message")
 			("seed", bpo::value<long int>()->default_value(15052011), "Seed of the random number generator")
-			("threads", bpo::value<long int>()->default_value(1), "Number of threads");
+			("threads,T", bpo::value<long int>()->default_value(1), "Number of threads");
 
 	bpo::options_description opt_input ("Input parameters");
 	opt_input.add_options()
@@ -42,12 +42,12 @@ void chunker::declare_options() {
 
 	bpo::options_description opt_param ("Parameters");
 	opt_param.add_options()
-			("window-cm", bpo::value<float>()->default_value(4.0), "Minimal window size in cM")
-			("window-mb", bpo::value<float>()->default_value(4.0), "Minimal window size in Mb")
-			("window-count", bpo::value<long int>()->default_value(30000), "Minimal window size in #variants")
+			("window-cm", bpo::value<float>()->default_value(2.5), "Minimal window size in cM")
+			("window-mb", bpo::value<float>()->default_value(2.0), "Minimal window size in Mb")
+			("window-count", bpo::value<long int>()->default_value(20000), "Minimal window size in # common variants")
 			("buffer-cm", bpo::value<float>()->default_value(0.5), "Minimal buffer size in cM")
-			("buffer-mb", bpo::value<float>()->default_value(0.5), "Minimal buffer size in Mb")
-			("buffer-count", bpo::value<long int>()->default_value(3000), "Minimal buffer size in #variants");
+			("buffer-mb", bpo::value<float>()->default_value(0.4), "Minimal buffer size in Mb")
+			("buffer-count", bpo::value<long int>()->default_value(2000), "Minimal buffer size in # common variants");
 
 	bpo::options_description opt_algo ("Model parameters");
 	opt_algo.add_options()
@@ -67,7 +67,7 @@ void chunker::parse_command_line(std::vector < std::string > & args) {
 	try {
 		bpo::store(bpo::command_line_parser(args).options(descriptions).run(), options);
 		bpo::notify(options);
-	} catch ( const boost::program_options::error& e ) { std::cerr << "Error parsing command line arguments: " << std::string(e.what()) << std::endl; exit(0); }
+	} catch ( const boost::program_options::error& e ) { std::cerr << "Error parsing command line arguments: " << std::string(e.what()) << std::endl; exit(1); }
 
 	if (options.count("log") && !vrb.open_log(options["log"].as < std::string > ()))
 		vrb.error("Impossible to create log file [" + options["log"].as < std::string > () +"]");
@@ -99,19 +99,19 @@ void chunker::check_options() {
 	if (options["threads"].as < long int > () < 1)
 		vrb.error("Number of threads is a strictly positive number.");
 
-	if (options["window-cm"].as < float > () <= 0)
-		vrb.error("Window size in cM must be positive");
+	if (options["window-cm"].as < float > () < 0)
+		vrb.error("Window size in cM must not be negative");
 	if (options["window-mb"].as < float > () <= 0)
 		vrb.error("Window size in Mb must be positive");
 	if (options["window-count"].as < long int > () <= 0)
-		vrb.error("Window size in number of markers must be positive");
+		vrb.error("Window size in number of common variants must be positive");
 
-	if (options["buffer-cm"].as < float > () <= 0)
-		vrb.error("Buffer size in cM must be positive");
+	if (options["buffer-cm"].as < float > () < 0)
+		vrb.error("Buffer size in cM must not be negative");
 	if (options["buffer-mb"].as < float > () <= 0)
 		vrb.error("Buffer size in Mb must be positive");
 	if (options["buffer-count"].as < long int > () <= 0)
-		vrb.error("Buffer size in number of markers must be positive");
+		vrb.error("Buffer size in number of common variants must be positive");
 
 	float s_maf = options["sparse-maf"].as < float > ();
 	if (s_maf >= 0.5 || s_maf < 0) vrb.error("The sparse MAF parameter should not be set too high or low. Ideally within the range [0.01-0.001] 0.001 MAF is the recommended setting]");
@@ -144,8 +144,8 @@ void chunker::verbose_options() {
 	vrb.bullet("Sparse MAF           : [" + stb.str(options["sparse-maf"].as < float > ()) + "]");
 	vrb.bullet("Algorithm            : [" + opt_algo + "]");
 	vrb.bullet("Recombination rates  : [" + opt_map + "]");
-	vrb.bullet("Min. Window size     : [" + stb.str(options["window-cm"].as < float > ()) + "cM | " + stb.str(options["window-mb"].as < float > ()) + "Mb | " + stb.str(options["window-count"].as < long int > ()) + " variants]");
-	vrb.bullet("Min. Buffer size     : [" + stb.str(options["buffer-cm"].as < float > ()) + "cM | " + stb.str(options["buffer-mb"].as < float > ()) + "Mb | " + stb.str(options["buffer-count"].as < long int > ()) + " variants]");
+	vrb.bullet("Min. Window size     : [" + stb.str(options["window-cm"].as < float > ()) + "cM | " + stb.str(options["window-mb"].as < float > ()) + "Mb | " + stb.str(options["window-count"].as < long int > ()) + " common variants]");
+	vrb.bullet("Min. Buffer size     : [" + stb.str(options["buffer-cm"].as < float > ()) + "cM | " + stb.str(options["buffer-mb"].as < float > ()) + "Mb | " + stb.str(options["buffer-count"].as < long int > ()) + " common variants]");
 
 	vrb.title("Other parameters");
 	vrb.bullet("Seed                 : [" + stb.str(options["seed"].as < long int > ()) + "]");

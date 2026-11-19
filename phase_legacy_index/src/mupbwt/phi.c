@@ -1,4 +1,5 @@
 #include "phi.h"
+#include "phi_fix.h"
 #include "c_arr.h"
 #include "utils.h"
 
@@ -174,6 +175,9 @@ int phi_deserialize(phi *p, FILE *fp) {
     free(tmp);
   }
 
+  if (phi_fixup(p) < 0)
+    return -1;
+
   return 0;
 }
 
@@ -226,6 +230,9 @@ int phi_deserialize_gz(phi *p, gzFile fp) {
     if (c_arr_deserialize_inplace_gz(fp, &p->phi_l_supp[i]) != 0)
       return -1;
   }
+
+  if (phi_fixup(p) < 0)
+    return -1;
 
   return 0;
 }

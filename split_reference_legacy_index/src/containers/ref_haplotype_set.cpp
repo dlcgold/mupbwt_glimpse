@@ -26,8 +26,6 @@
 #include <containers/ref_haplotype_set.h>
 #include <math.h>
 
-// Initial row capacity for HvarRef: it is grown on demand (amortized doubling)
-// by the single-pass reference parser, then trimmed to the true n_com_sites.
 static const unsigned int HVARREF_INITIAL_ROWS = 4096;
 
 ref_haplotype_set::ref_haplotype_set()

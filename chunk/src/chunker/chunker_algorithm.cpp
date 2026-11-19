@@ -70,12 +70,14 @@ void chunker::split_recursive_no_reset(output_file & fd, long int & cidx, std::s
 	long int next0_window_mb_size = positions_all_mb[mid_idx] - positions_all_mb[start_idx];
 	long int next1_window_mb_size = positions_all_mb[stop_idx] - positions_all_mb[mid_idx + 1];
 
+	//long int next0_window_okay = (next0_window_cm_size >= window_cm && next0_window_mb_size >= window_mb && next0_window_count >= window_count);
+	//long int next1_window_okay = (next1_window_cm_size >= window_cm && next1_window_mb_size >= window_mb && next1_window_count >= window_count);
 	long int next0_window_okay = (next0_window_cm_size >= window_cm && next0_window_mb_size >= window_mb && next0_window_common_count >= window_count);
 	long int next1_window_okay = (next1_window_cm_size >= window_cm && next1_window_mb_size >= window_mb && next1_window_common_count >= window_count);
 
 	// If we can further split, recursion!
 	if (next0_window_okay && next1_window_okay) {
-		vrb.bullet("Internal window [" + chr + ":" + stb.str(positions_all_mb[start_idx]) + "-" + stb.str(positions_all_mb[stop_idx]) + "] / L=" + stb.str(curr_window_cm_size) + "cM / L=" + stb.str(curr_window_mb_size) + "bp / C=" + stb.str(curr_window_count));
+		vrb.bullet("long internal window [" + chr + ":" + stb.str(positions_all_mb[start_idx]) + "-" + stb.str(positions_all_mb[stop_idx]) + "] / L=" + stb.str(curr_window_cm_size) + "cM / L=" + stb.str(curr_window_mb_size) + "bp / C=" + stb.str(curr_window_count));
 		split_recursive_no_reset (fd, cidx, chr, start_idx, mid_idx);
 		split_recursive_no_reset (fd, cidx, chr, mid_idx+1, stop_idx);
 	} else {
@@ -83,6 +85,7 @@ void chunker::split_recursive_no_reset(output_file & fd, long int & cidx, std::s
 		add_buffer(start_idx, stop_idx, left_idx, right_idx);
 		vrb.bullet("Terminal window [" + stb.str(cidx) + "] -buffer:[" + chr + ":" + stb.str(positions_all_mb[start_idx]) + "-" + stb.str(positions_all_mb[stop_idx]) + "] / +buffer:[" + chr +  ":" + stb.str(positions_all_mb[left_idx]) + "-" + stb.str(positions_all_mb[right_idx]) + "] / L=" + stb.str(curr_window_cm_size) + "cM / L=" + stb.str(curr_window_mb_size) + "bp / C=" + stb.str(curr_window_count));
 		cnk_info.add_chunk(positions_all_mb[left_idx], positions_all_mb[right_idx], positions_all_mb[start_idx], positions_all_mb[stop_idx], curr_window_cm_size, curr_window_mb_size, curr_window_count, curr_window_common_count);
+		//fd << cidx << "\t" << chr << "\t" << chr << ":"<< positions_all_mb[left_idx] << "-" << positions_all_mb[right_idx] << "\t" << chr << ":" << positions_all_mb[start_idx] << "-" << positions_all_mb[stop_idx] << "\t" << curr_window_cm_size << "\t" << curr_window_mb_size << "\t" << curr_window_count <<"\t" << curr_window_common_count << std::endl;
 		cidx ++;
 	}
 }
@@ -151,6 +154,8 @@ void chunker::split_sequential(output_file & fd, long int & cidx, std::string & 
 			}
 			if (curr_window_stop_idx == positions_all_mb.size()-1)
 			{
+				//buf_stop+=10000000;
+				//chk_stop+=10000000;
 				buf_stop=std::max(contig_len, buf_stop);
 				chk_stop=std::max(contig_len, chk_stop);
 			}
@@ -162,29 +167,40 @@ void chunker::split_sequential(output_file & fd, long int & cidx, std::string & 
 	}
 }
 
+//Sets left_idx/right_idx to the closest indices whose buffers [left_idx, start_idx) and (stop_idx, right_idx]
+//hold at least buffer_count common variants, buffer_cm cM and buffer_mb bp, or to the region edge if none do.
 void chunker::add_buffer(const long int start_idx, const long int stop_idx, long int& left_idx, long int& right_idx)
 {
-	long int left_mb_size = -1, left_cm_size = -1, left_count = -1;
-	if (start_idx > buffer_count) {
-		left_idx = start_idx - buffer_count;
+	const long int n_all = (long int) positions_all_mb.size();
+	const long int n_common = (long int) positions_common_mb.size();
+
+	long int left_mb_size = -1, left_count = -1;
+	float left_cm_size = -1;
+	const long int n_common_before_start = all2common[start_idx];
+	if (n_common_before_start >= buffer_count) {
+		//Start just after the buffer_count-th common variant before start_idx, so the first step lands on it
+		left_idx = common2all[n_common_before_start - buffer_count] + 1;
 		do {
-			left_idx --;
-			left_count = start_idx - left_idx + 1;
+			left_idx--;
+			left_count = n_common_before_start - all2common[left_idx];
 			left_mb_size = positions_all_mb[start_idx] - positions_all_mb[left_idx];
 			left_cm_size = positions_all_cm[start_idx] - positions_all_cm[left_idx];
-		} while (((left_idx > 0) && ((left_cm_size < buffer_cm) || (left_mb_size < buffer_mb) || left_count < buffer_count)));
+		} while ((left_idx > 0) && ((left_cm_size < buffer_cm) || (left_mb_size < buffer_mb) || left_count < buffer_count));
 	} else { left_idx = 0; }
 
-	long int right_mb_size = -1, right_cm_size = -1, right_count = -1;
-	if (stop_idx < (positions_all_mb.size() - buffer_count)) {
-		right_idx = stop_idx + buffer_count - 1;
+	long int right_mb_size = -1, right_count = -1;
+	float right_cm_size = -1;
+	const long int n_common_through_stop = (stop_idx + 1 < n_all) ? all2common[stop_idx + 1] : n_common;
+	if (n_common_through_stop + buffer_count <= n_common) {
+		//Start just before the buffer_count-th common variant after stop_idx, so the first step lands on it
+		right_idx = common2all[n_common_through_stop + buffer_count - 1] - 1;
 		do {
-			right_idx ++;
-			right_count = right_idx - stop_idx + 1;
+			right_idx++;
+			right_count = ((right_idx + 1 < n_all) ? all2common[right_idx + 1] : n_common) - n_common_through_stop;
 			right_mb_size = positions_all_mb[right_idx] - positions_all_mb[stop_idx];
 			right_cm_size = positions_all_cm[right_idx] - positions_all_cm[stop_idx];
-		} while (((right_idx < (positions_all_mb.size() - 1)) && ((right_cm_size < buffer_cm) || (right_mb_size < buffer_mb) || right_count < buffer_count)));
-	} else { right_idx = positions_all_mb.size() - 1; }
+		} while ((right_idx < n_all - 1) && ((right_cm_size < buffer_cm) || (right_mb_size < buffer_mb) || right_count < buffer_count));
+	} else { right_idx = n_all - 1; }
 }
 
 void chunker::chunk() {
@@ -210,7 +226,7 @@ void chunker::chunk() {
 		readerGM.readGeneticMapFile(options["map"].as < std::string > ());
 		setGeneticMap(readerGM, map_positions_all, positions_all_mb, positions_all_cm);
 	} else setGeneticMap(map_positions_all, positions_all_mb, positions_all_cm);
-	vrb.bullet("Region spans " + stb.str(positions_all_mb.back() - positions_all_mb[0] + 1) + " bp and " + stb.str(positions_all_cm.back() - positions_all_cm[0] + 1, 2) + " cM");
+	vrb.bullet("Region spans " + stb.str(positions_all_mb.back() - positions_all_mb[0] + 1) + " bp and " + stb.str(positions_all_cm.back() - positions_all_cm[0], 2) + " cM");
 	if (positions_all_mb.size() == 0) vrb.error("No markers in region: " + options["region"].as < std::string > () + ". Check chromosome name and start/end positions.");
 
 	cnk_info.chr = chrID;
@@ -218,7 +234,7 @@ void chunker::chunk() {
 	long int cidx = 0;
 	long int cidx_uniform=0;
 
-	vrb.title("Splitting data into chunks and writing to [" + options["output"].as < std::string > () + "]");
+	vrb.title("Splitting data long into chunks and writing to [" + options["output"].as < std::string > () + "]");
 	output_file fd(options["output"].as < std::string > ());
 
 	if (options.count("recursive"))
@@ -267,6 +283,7 @@ void chunker::chunk() {
 		else
 		{
 			vrb.bullet("Solution found ["+ stb.str(i) + "/10000]. Writing chunks to file.");
+			//split_sequential(fd, cidx, chrID, 0, positions_all_mb.size() - 1, true);
 			cnk_info.output_to_file(fd);
 
 			if (options.count("uniform-number-variants"))
@@ -295,6 +312,7 @@ void chunker::chunk() {
 				{
 					vrb.bullet("Uniform solution found ["+ stb.str(i) + "/10000]. Writing chunks to file.");
 					cnk_info.output_to_file(fd);
+					//split_sequential(fd, cidx_uniform, chrID, 0, positions_all_mb.size() - 1, true);
 				}
 			}
 		}

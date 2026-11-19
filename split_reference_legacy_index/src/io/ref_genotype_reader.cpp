@@ -352,7 +352,7 @@ void ref_genotype_reader::parseRefGenotypes(bcf_srs_t *sr,
   if (H.n_tot_sites == 0)
     vrb.error("No variants to be imputed in files");
 
-  H.HvarRef.reallocate(H.n_com_sites, H.n_ref_haps); // trim to true final size
+  H.HvarRef.reallocate(H.n_com_sites, H.n_ref_haps);
 
   vrb.bullet("Reference panel parsing done (" +
              stb.str(tac.rel_time() * 1.0 / 1000, 2) + "s)");

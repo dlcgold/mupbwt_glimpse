@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
     free_pbwt(&pbwt);
   } else if (strcmp(cmd, "query") == 0) {
     args.mode = 0;
-    args.thr90 = -1; /* sentinel: use MUPBWT_THR90_DEFAULT unless --thr90 is given */
+    args.thr90 = -1;
 
     argp_parse(&query_argp, argc - 1, argv + 1, ARGP_IN_ORDER, 0, &args);
 

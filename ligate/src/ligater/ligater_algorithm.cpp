@@ -26,13 +26,11 @@
 #include <ligater/ligater_header.h>
 #include <htslib/khash.h>
 #include <sys/stat.h>
+#include <cstring>
+#include <cerrno>
 #include <utils/otools.h>
 #include <utils/basic_stats.h>
 
-
-#define OFILE_VCFU	0
-#define OFILE_VCFC	1
-#define OFILE_BCFC	2
 
 #define GET(n,i)	(((n)>>(i))&1U)
 #define TOG(n,i)	((n)^=(1UL<<(i)))
@@ -87,14 +85,15 @@ void ligater::remove_format(bcf_hdr_t *hdr, bcf1_t *line)
 
 void ligater::phase_update(bcf_hdr_t *hdr, bcf1_t *line, const bool uphalf)
 {
-    int i, nGTs = bcf_get_genotypes(hdr, line, &GTa, &mGTa);
-    if ( nGTs <= 0 ) return;    // GT field is not present
-    for (i=0; i<bcf_hdr_nsamples(hdr); i++)
+	int nGTs = bcf_get_genotypes(hdr, line, &GTa, &mGTa);
+	if ( nGTs <= 0 ) return;    // GT field is not present
+	if ( nGTs != 2*bcf_hdr_nsamples(hdr) ) return;    // not diploid-width (e.g. all-haploid FPLOIDY=1): no phase to swap
+	for (auto i=0; i<bcf_hdr_nsamples(hdr); i++)
     {
 		if ( !swap_phase[uphalf][i] ) continue;
 		int *gt = &GTa[i*2];
 		if ( bcf_gt_is_missing(gt[0]) || gt[1]==bcf_int32_vector_end ) continue;
-        if (!bcf_gt_is_phased(gt[0]) || !bcf_gt_is_phased(gt[1])) continue;
+		if (!bcf_gt_is_phased(gt[1])) continue;
         const int gt0 = bcf_gt_phased(bcf_gt_allele(gt[1])==1);
         const int gt1 = bcf_gt_phased(bcf_gt_allele(gt[0])==1);
         gt[0] = gt0;
@@ -126,10 +125,10 @@ void ligater::update_distances()
 
 void ligater::write_record(htsFile *fd, bcf_hdr_t * out_hdr, bcf_hdr_t * hdr_in, bcf1_t *line, const bool uphalf)
 {
-	bcf_translate(out_hdr, hdr_in, line);
 	if ( nswap[uphalf] ) phase_update(hdr_in, line, uphalf);
 	//remove_info(out_hdr,line);
 	//remove_format(out_hdr,line);
+	bcf_translate(out_hdr, hdr_in, line);
 	if (bcf_write(fd, out_hdr, line) ) vrb.error("Failed to write the record output to file");
 }
 
@@ -143,8 +142,8 @@ void ligater::scan_overlap(const int ifname, const char * seek_chr, int seek_pos
 	int n_threads = options["threads"].as < int > ();
 	if (n_threads > 1) bcf_sr_set_threads(sr, n_threads);
 
-	if (!bcf_sr_add_reader (sr, filenames[ifname-2].c_str())) vrb.error("Problem opening/creating index file for [" + filenames[ifname-2] + "]");
-	if (!bcf_sr_add_reader (sr, filenames[ifname-1].c_str())) vrb.error("Problem opening/creating index file for [" + filenames[ifname-1] + "]");
+	if (!bcf_sr_add_reader (sr, filenames[ifname-2].c_str())) vrb.error("Failed to open/index [" + filenames[ifname-2] + "]: " + std::string(bcf_sr_strerror(sr->errnum)) + ". The file may be missing, malformed, or (if cloud-streamed) the read may have failed.");
+	if (!bcf_sr_add_reader (sr, filenames[ifname-1].c_str())) vrb.error("Failed to open/index [" + filenames[ifname-1] + "]: " + std::string(bcf_sr_strerror(sr->errnum)) + ". The file may be missing, malformed, or (if cloud-streamed) the read may have failed.");
 
 	int nset = 0;
 	int n_sites_buff = 0;
@@ -169,14 +168,21 @@ void ligater::scan_overlap(const int ifname, const char * seek_chr, int seek_pos
 		//bcf_unpack(line1,BCF_UN_FMT);
 		int nGTsa = bcf_get_genotypes(sr->readers[0].header, line0, &GTa, &mGTa);
 		int nGTsb = bcf_get_genotypes(sr->readers[1].header, line1, &GTb, &mGTb);
-		if ( nGTsa != 2*nsamples || nGTsb != 2*nsamples )
-			vrb.error("Non-diploid samples found in overlap at position: " + std::to_string(line0->pos + 1));
+		if ( nGTsa <= 0 || nGTsb <= 0 )
+			vrb.error("GT field is not present in overlap at position: " + std::to_string(line0->pos + 1));
 
-		update_distances();
+		// update_distances reads two alleles per sample. All-haploid chunks (FPLOIDY=1, e.g. male
+		// chrX non-PAR) have one allele per sample and no phase to align, so they are not compared;
+		// haploid samples in mixed-ploidy chunks are padded with vector_end and skipped per sample.
+		if ( nGTsa == 2*nsamples && nGTsb == 2*nsamples ) update_distances();
 		last_pos = line0->pos;
 		++n_sites_buff;
 		++n_sites_tot;
 	}
+	//A nonzero errnum here means the loop stopped on a read failure, not a clean EOF.
+	//Without this check a truncated/dropped (e.g. cloud-streamed) input would look like
+	//the file simply ended, silently corrupting the overlap scan.
+	if (sr->errnum) vrb.error("Error reading VCF/BCF mid-stream while scanning the overlap of [" + filenames[ifname-2] + "] / [" + filenames[ifname-1] + "]: " + std::string(bcf_sr_strerror(sr->errnum)) + ". An input chunk may be incomplete or, if cloud-streamed, the read dropped.");
 	bcf_sr_destroy(sr);
 
 	stats1D stats_all;
@@ -215,42 +221,63 @@ void ligater::ligate() {
 	//Create all input file descriptors
 	vrb.bullet("Creating file descriptor");
 
-	std::string file_format = "w";
 	std::string fname = options["output"].as < std::string > ();
-	unsigned int file_type = OFILE_VCFU;
-	if (fname.size() > 6 && fname.substr(fname.size()-6) == "vcf.gz") { file_format = "wz"; file_type = OFILE_VCFC; }
-	if (fname.size() > 3 && fname.substr(fname.size()-3) == "bcf") { file_format = "wb"; file_type = OFILE_BCFC; }
 	bcf_srs_t * sr =  bcf_sr_init();
 	sr->require_index = 1;
 	int n_threads = options["threads"].as < int > ();
 	if (n_threads > 1) if (bcf_sr_set_threads(sr, n_threads) < 0) vrb.error("Failed to create threads");
 
-	bcf_hdr_t * out_hdr = NULL;
-	bcf1_t *line = bcf_init();
-	std::vector<int> start_pos(nfiles);
+	struct input_chunk {
+		std::string filename;
+		int chrid;	//contig id in out_hdr
+		int pos;	//position of the first record
+	};
+	std::vector<input_chunk> chunks(nfiles);
+	bcf_hdr_t * out_hdr = NULL;	//headers merged in input-list order
+	bcf1_t *line_t = bcf_init();
+	std::string fploidy0;	//FPLOIDY of the first file ("" if absent); all files must agree
 
-	for (int f = 0, prev_chrid = -1 ; f < nfiles ; f ++)
+	for (int f = 0 ; f < nfiles ; f ++)
 	{
-		htsFile *fp = hts_open(filenames[f].c_str(), "r"); if ( !fp ) vrb.error("Failed to open: " + filenames[f] + ".");
-		bcf_hdr_t *hdr = bcf_hdr_read(fp); if ( !hdr ) vrb.error("Failed to parse header: " + filenames[f] +".");
-		out_hdr = bcf_hdr_merge(out_hdr,hdr);
-        if ( bcf_hdr_nsamples(hdr) != bcf_hdr_nsamples(out_hdr) ) vrb.error("Different number of samples in " + filenames[f] + ".");
-        for (int j=0; j<bcf_hdr_nsamples(hdr); j++)
-        	if ( std::string(out_hdr->samples[j]) != std::string(hdr->samples[j]) )  vrb.error("Different sample names in " + filenames[f] + ".");
+		htsFile *fp = hts_open(filenames[f].c_str(), "r"); if ( !fp ) vrb.error("Failed to open [" + filenames[f] + "] (" + std::string(strerror(errno)) + "). The file may be missing, unreadable, or (if cloud-streamed) the read may have failed.");
+		bcf_hdr_t *hdr = bcf_hdr_read(fp); if ( !hdr ) vrb.error("Failed to parse header of [" + filenames[f] +"]. The file may be malformed or truncated (e.g. an incomplete cloud-stream).");
+		out_hdr = bcf_hdr_merge(out_hdr,hdr);	//samples come from the first file only (merge does not add samples)
+		if ( bcf_hdr_nsamples(hdr) != bcf_hdr_nsamples(out_hdr) ) vrb.error("Different number of samples in " + filenames[f] + ".");
+		for (int j=0; j<bcf_hdr_nsamples(hdr); j++)
+			if ( std::string(out_hdr->samples[j]) != std::string(hdr->samples[j]) )  vrb.error("Different sample names in " + filenames[f] + ".");
+		//Chunks imputed with different ploidy (e.g. chrX PAR vs non-PAR) cannot be ligated together:
+		//phase cannot be carried across them and the output header can only hold one FPLOIDY.
+		//All files must agree: all with the same FPLOIDY, or all without it (older GLIMPSE versions).
+		bcf_hrec_t * hrec_fploidy = bcf_hdr_get_hrec(hdr, BCF_HL_GEN, "FPLOIDY", NULL, NULL);
+		const std::string fploidy = hrec_fploidy ? std::string(hrec_fploidy->value) : "";
+		if (f == 0) fploidy0 = fploidy;
+		else if (fploidy != fploidy0) vrb.error("Files [" + filenames[0] + "] (FPLOIDY=" + (fploidy0.empty() ? "missing" : fploidy0) + ") and [" + filenames[f] + "] (FPLOIDY=" + (fploidy.empty() ? "missing" : fploidy) + ") have different ploidy and cannot be ligated together. Ligate them separately (e.g. PAR and non-PAR regions of chrX).");
+		if ( bcf_read(fp, hdr, line_t)!=0 ) vrb.error("Empty file detected: " + filenames[f] +".");
+		chunks[f] = {filenames[f], bcf_hdr_id2int(out_hdr,BCF_DT_CTG,bcf_seqname(hdr,line_t)), (int)line_t->pos};
+		bcf_hdr_destroy(hdr);
+		if ( hts_close(fp)!=0 ) vrb.error("Close failed: " + filenames[f] + ".");
+	}
+	bcf_destroy(line_t);
 
-        int ret = bcf_read(fp, hdr, line);
-		if ( ret!=0 ) vrb.error("Empty file detected: " + filenames[f] +".");
-        else
-        {
-            int chrid = bcf_hdr_id2int(out_hdr,BCF_DT_CTG,bcf_seqname(hdr,line));
-            start_pos[f] = chrid==prev_chrid ? line->pos : -1;
-            prev_chrid = chrid;
-        }
-        bcf_hdr_destroy(hdr);
-        if ( hts_close(fp)!=0 ) vrb.error("Close failed: " + filenames[f] + ".");
+	//Order chunks by first position within each contig. Contigs keep their order in out_hdr: the
+	//headers' contig list if they have one (e.g. phase --contigs-fai), else order of first appearance.
+	auto by_locus = [](const input_chunk & a, const input_chunk & b) { return std::tie(a.chrid, a.pos) < std::tie(b.chrid, b.pos); };
+	if (!std::is_sorted(chunks.begin(), chunks.end(), by_locus))
+	{
+		vrb.bullet("Input files are not sorted by contig and position: sorting them");
+		std::stable_sort(chunks.begin(), chunks.end(), by_locus);
 	}
 
-    for (int i=1; i<nfiles; i++) if ( start_pos[i-1]!=-1 && start_pos[i]!=-1 && start_pos[i]<start_pos[i-1] ) vrb.error("The files not in ascending order");
+	std::vector<int> start_pos(nfiles);
+	for (int f = 0 ; f < nfiles ; f ++)
+	{
+		filenames[f] = chunks[f].filename;
+
+		const bool same_contig = f > 0 && chunks[f].chrid == chunks[f-1].chrid;
+		if (same_contig && chunks[f].pos == chunks[f-1].pos)
+			vrb.error("Files [" + chunks[f-1].filename + "] and [" + filenames[f] + "] both start at " + std::string(bcf_hdr_id2name(out_hdr, chunks[f].chrid)) + ":" + stb.str(chunks[f].pos + 1) + ". Duplicate or nested chunks cannot be ligated.");
+		start_pos[f] = same_contig ? chunks[f].pos : -1;
+	}
     int i = 0, nrm = 0;
     /*
     while ( i<out_hdr->nhrec )
@@ -289,15 +316,34 @@ void ligater::ligate() {
 	GTa = GTb = NULL;
 	mGTa = 0, mGTb=0;
 
-	htsFile * out_fp = hts_open(fname.c_str(),file_format.c_str());
+	htsFile * out_fp = hts_open(fname.c_str(),out_file_format.c_str());
 	if ( out_fp == NULL ) vrb.error("Can't write to " + fname + ".");
 	if (n_threads > 1) hts_set_opt(out_fp, HTS_OPT_THREAD_POOL, sr->p);
 	bcf_hdr_add_sample(out_hdr, NULL);
 	if (bcf_hdr_write(out_fp, out_hdr)) vrb.error("Failed to write header to output file");
 
+	std::string fnidx= (out_file_type == OFILE_BCFC)? fname +".csi" : fname+".tbi";
+	if (out_file_type!=OFILE_VCFU)
+	{
+		std::ifstream file_idx(fnidx);
+		if (file_idx.good())
+		{
+			file_idx.close();
+			if (std::remove(fnidx.c_str()))
+			{
+				vrb.warning("Detected index file. Were not able to delete it. Trying to skip index creation.");
+				out_file_type=OFILE_VCFU;
+			}
+		}
+		if (out_file_type!=OFILE_VCFU)
+		{
+			if (bcf_idx_init(out_fp, out_hdr, 14, fnidx.c_str())) vrb.error("Initializing index");
+		}
+	}
+	bcf1_t* line = NULL;
+
 	int n_variants = 0;
 	int n_variants_at_start_cnk = 0;
-	line = bcf_init();
 	int chunk_counter=0;
 	int n_sites_buff = 0;
 
@@ -317,10 +363,25 @@ void ligater::ligate() {
         int new_file = 0;
         while ( sr->nreaders < 2 && ifname < nfiles )
         {
-            if ( !bcf_sr_add_reader (sr, filenames[ifname].c_str())) vrb.error("Failed to open " + filenames[ifname] + ".");
+            //Overlapping chunks are opened mid-stream, so reaching a chunk that continues a contig with
+            //no reader open means it shares no records with the previous one
+            if ( sr->nreaders==0 && start_pos[ifname]!=-1 )
+                vrb.warning("Files [" + filenames[ifname-1] + "] and [" + filenames[ifname] + "] do not overlap: gap on " + prev_chr + " before position " + stb.str(start_pos[ifname] + 1) + ". Phase cannot be aligned across the gap; is a chunk missing from the input list?");
+            if ( !bcf_sr_add_reader (sr, filenames[ifname].c_str())) vrb.error("Failed to open/index [" + filenames[ifname] + "]: " + std::string(bcf_sr_strerror(sr->errnum)) + ". The file may be missing, malformed, or (if cloud-streamed) the read may have failed.");
             new_file = 1;
             ifname++;
-            if ( start_pos[ifname-1]==-1 ) break;   // new chromosome, start with only one file open
+            if ( start_pos[ifname-1]==-1 )   // new chromosome, start with only one file open
+            {
+                // Phase is not linked across chromosomes: start each one unswapped so a
+                // swap decided on one chromosome does not flip every het on the next.
+                nswap = {0,0};
+                swap_phase = {std::vector<bool>(nsamples, false), std::vector<bool>(nsamples, false)};
+                // Handle its first chunk as the first file, so its Cnk log line starts afresh
+                // and no overlap from the previous chromosome is still counted as in progress.
+                prev_readers_size = 0;
+                n_sites_buff = 0;
+                break;
+            }
             if ( ifname < nfiles && start_pos[ifname]==-1 ) break; // next file starts on a different chromosome
         }
 
@@ -339,11 +400,14 @@ void ligater::ligate() {
         int nret;
         while ( (nret = bcf_sr_next_line(sr)) )
         {
+            //A later-starting chunk that ends before the earlier one is nested in it
+            if ( sr->nreaders==2 && bcf_sr_has_line(sr,0) && !bcf_sr_has_line(sr,1) && bcf_sr_region_done(sr,1) )
+                vrb.error("File [" + std::string(sr->readers[1].fname) + "] is nested inside [" + std::string(sr->readers[0].fname) + "]. Nested chunks cannot be ligated.");
             if ( !bcf_sr_has_line(sr,0) ) if ( bcf_sr_region_done(sr,0) )  bcf_sr_remove_reader(sr, 0);
 
             // Get a line to learn about current position
             for (i=0; i<sr->nreaders; i++) if ( bcf_sr_has_line(sr,i) ) break;
-            bcf1_t *line = bcf_sr_get_line(sr,i);
+            line = bcf_sr_get_line(sr,i);
 
             // This can happen after bcf_sr_seek: indel may start before the coordinate which we seek to.
             if ( seek_chr>=0 && seek_pos>line->pos && seek_chr==bcf_hdr_name2id(out_hdr, bcf_seqname(sr->readers[i].header,line)) ) continue;
@@ -354,7 +418,7 @@ void ligater::ligate() {
             while ( ifname < nfiles && start_pos[ifname]!=-1 && line->pos >= start_pos[ifname] )
             {
                 must_seek = 1;
-                if ( !bcf_sr_add_reader(sr, filenames[ifname].c_str())) vrb.error("Failed to open " + filenames[ifname] + ".");
+                if ( !bcf_sr_add_reader(sr, filenames[ifname].c_str())) vrb.error("Failed to open/index [" + filenames[ifname] + "]: " + std::string(bcf_sr_strerror(sr->errnum)) + ". The file may be missing, malformed, or (if cloud-streamed) the read may have failed.");
                 if  (sr->nreaders>2) vrb.error("Three files overlapping at position: " + std::to_string(line->pos+1));
                 ifname++;
             }
@@ -419,26 +483,29 @@ void ligater::ligate() {
             prev_readers_size = sr->nreaders;
     		n_variants++;
         }
+        //A nonzero errnum means the inner read loop stopped on a read failure rather than
+        //a clean end-of-input; without this check a truncated/dropped (e.g. cloud-streamed)
+        //chunk would be silently concatenated as if complete.
+        if (sr->errnum) vrb.error("Error reading VCF/BCF mid-stream during concatenation: " + std::string(bcf_sr_strerror(sr->errnum)) + ". An input chunk may be incomplete or, if cloud-streamed, the read dropped.");
         if ( sr->nreaders ) while ( sr->nreaders ) bcf_sr_remove_reader(sr, 0);
     }
 	vrb.print("Cnk " + stb.str(ifname-1) + " [" + prev_chr + ":" + stb.str(first_pos) + "-" + stb.str(prev_pos[0] + 1) + "] [L=" + stb.str(n_variants-n_variants_at_start_cnk) + "]" );
+	if (out_file_type!=OFILE_VCFU)
+	{
+		if (bcf_idx_save(out_fp)) vrb.warning("Error writing index");
+	}
 
 	if (hts_close(out_fp)) vrb.error("Non zero status when closing VCF/BCF file descriptor");
-	bcf_hdr_destroy(out_hdr);
+	out_fp=NULL;
 	bcf_sr_destroy(sr);
-	if (line) bcf_destroy(line);
-	free(GTa);
-    free(GTb);
-
+	sr=NULL;
+	bcf_hdr_destroy(out_hdr);
+	out_hdr=NULL;
+	if (GTa) free(GTa);
+	GTa=NULL;
+	if (GTb) free(GTb);
+	GTb=NULL;
 	if (n_variants == 0) vrb.error("No variants to be phased in files");
 	vrb.title("Writing completed [L=" + stb.str(n_variants) + "] (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
-
-	if (!options.count("no-index"))
-	{
-		vrb.title("Creating index");
-		//create index using htslib (csi, using default bcftools option 14)
-		if (!bcf_index_build3(std::string(options["output"].as < std::string > ()).c_str(), NULL, 14, options["threads"].as < int > ())) vrb.print("Index successfully created");
-		else vrb.warning("Problem building the index for the output file. This can indicate a problem during ligation. Try to build the index using tabix/bcftools.");
-	}
 }
 
