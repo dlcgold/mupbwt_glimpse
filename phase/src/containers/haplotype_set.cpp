@@ -278,6 +278,11 @@ void haplotype_set::allocatePBWT(const int _pbwt_depth,
     vrb.bullet("No PBWT allocated (Kpbwt=0 or Kpbwt >= n_ref_haps)");
     return;
   }
+  if (n_com_sites_hq == 0 && !_use_mupbwt)
+    vrb.error("The imputation region has no high-quality common variants (SNPs "
+              "with MAF >= the sparse MAF that do not share a position with "
+              "the previous record) for the sparse PBWT selection to use. Use "
+              "a larger region.");
 
   pbwt_array_A = std::vector<int>(n_ref_haps);
   pbwt_array_B = std::vector<int>(n_ref_haps);
@@ -341,7 +346,7 @@ void haplotype_set::allocatePBWT(const int _pbwt_depth,
     }
     ++l_hq;
   }
-  if (pbwt_grp.back() < n_com_sites_hq)
+  if (pbwt_grp.empty() || pbwt_grp.back() < n_com_sites_hq)
     pbwt_grp.push_back(n_com_sites_hq);
   nstored = pbwt_grp.size();
 
@@ -412,6 +417,10 @@ public:
   }
 };
 
+typedef uint32_t mu_v8u __attribute__((vector_size(32)));
+typedef int32_t mu_v8i __attribute__((vector_size(32)));
+static_assert(PBWT_SCAN_RUNS <= 17);
+
 static size_t mu_batch_size(size_t n, int threads, int cap) {
   size_t b = n / ((size_t)std::max(threads, 1) * 4);
   return std::max<size_t>(1, std::min<size_t>(b, (size_t)std::max(cap, 1)));
@@ -431,6 +440,22 @@ void haplotype_set::matchHapsFromMuPBWT(
   }
 
   assert(cm_pos.size() == n_sites);
+
+  if (!Ypacked.empty() || !A_small_idx.empty()) {
+    size_t freed = Ypacked.capacity() + A_small_idx.capacity() * sizeof(std::vector<int>);
+    for (const auto &v : A_small_idx)
+      freed += v.capacity() * sizeof(int);
+    freed += (pbwt_array_A.capacity() + pbwt_array_B.capacity()) * sizeof(int);
+    std::vector<unsigned char>().swap(Ypacked);
+    std::vector<std::vector<int>>().swap(A_small_idx);
+    std::vector<int>().swap(pbwt_array_A);
+    std::vector<int>().swap(pbwt_array_B);
+    std::vector<int>().swap(pbwt_small_A);
+    std::vector<int>().swap(pbwt_small_B);
+    std::vector<int>().swap(pbwt_small_V);
+    vrb.bullet("mu-PBWT: released unused sparse PBWT data (" +
+               stb.str(freed / (1024.0 * 1024.0), 1) + " Mb)");
+  }
 
   tac.clock();
 
@@ -475,7 +500,7 @@ void haplotype_set::matchHapsFromMuPBWT(
     std::vector<std::vector<int>> local_states;
     std::vector<bool> rescued_ids;
     std::vector<int> local_rescued;
-    std::vector<uint8_t> query;
+    const std::vector<bool> *query;
     std::vector<int> q_rare;
     size_t q;
     uint32_t p, p_p, l, p_l;
@@ -499,7 +524,7 @@ void haplotype_set::matchHapsFromMuPBWT(
       Q.active_haplos.reserve(2000);
       Q.local_states.resize(pbwt_depth);
       Q.rescued_ids.assign(n_haps, false);
-      Q.query.assign(n_sites, 0);
+      Q.query = nullptr;
     }
 
     pbwt_col *all_cols = mupbwt.cols.a;
@@ -510,7 +535,7 @@ void haplotype_set::matchHapsFromMuPBWT(
     auto get_l_ref = [&](mu_query_ctx &Q, uint32_t end_site,
                          uint32_t h) -> uint32_t {
       const std::vector<int> &q_rare = Q.q_rare;
-      const uint8_t *query = Q.query.data();
+      const std::vector<bool> &query = *Q.query;
       const int e = (int)end_site;
       const std::vector<int> &sh = ShapRef[h];
       int a = (int)(std::upper_bound(q_rare.begin(), q_rare.end(), e) - q_rare.begin()) - 1;
@@ -627,9 +652,8 @@ void haplotype_set::matchHapsFromMuPBWT(
     };
 
     auto scan_site = [&](mu_query_ctx &Q, size_t i, pbwt_col *c_col,
-                         pbwt_col *next_col) {
-      const uint8_t *query = Q.query.data();
-      uint8_t q_s = query[i];
+                         pbwt_col *next_col) __attribute__((always_inline)) {
+      uint8_t q_s = (*Q.query)[i];
       if (LIKELY(q_s == Q.c_s)) {
         Q.p = Q.c_p;
         Q.l = (i != 0 && Q.p_p == Q.p) ? Q.p_l + 1 : 1;
@@ -685,10 +709,19 @@ void haplotype_set::matchHapsFromMuPBWT(
           const uint32_t nv_n = scan_hdr_n(nv[0]);
           if (nv_n) {
             const uint32_t *st = nv + 1 + nv_n;
-            uint32_t r = 0;
-            for (uint32_t k = 0; k + 1 < nv_n; k++)
-              r += Q.c_i >= st[k];
-            Q.c_r = r;
+            mu_v8u a, b;
+            memcpy(&a, st, sizeof(a));
+            memcpy(&b, st + 8, sizeof(b));
+            const mu_v8u ci = {Q.c_i, Q.c_i, Q.c_i, Q.c_i, Q.c_i, Q.c_i, Q.c_i, Q.c_i};
+            const uint32_t cnt = nv_n - 1;
+            const mu_v8u cv8 = {cnt, cnt, cnt, cnt, cnt, cnt, cnt, cnt};
+            const mu_v8u lo = {0, 1, 2, 3, 4, 5, 6, 7};
+            const mu_v8u hi = {8, 9, 10, 11, 12, 13, 14, 15};
+            const mu_v8i m = ((a <= ci) & (lo < cv8)) + ((b <= ci) & (hi < cv8));
+            int r = 0;
+            for (int k = 0; k < 8; k++)
+              r -= m[k];
+            Q.c_r = (uint32_t)r;
           } else if (scan_hdr_samples(nv[0])) {
             Q.c_r = get_r_sampled(next_col, nv, Q.c_i);
           } else {
@@ -746,15 +779,11 @@ void haplotype_set::matchHapsFromMuPBWT(
         bool is_h1 = (Q.q % 2 != 0);
         const auto &genotype_ptr = G.vecG[ind_idx];
         const auto &source_H = is_h1 ? genotype_ptr->H1 : genotype_ptr->H0;
-        uint8_t *query = Q.query.data();
-
-        for (size_t s = 0; s < n_sites; ++s) {
-          query[s] = source_H[s] ? 1 : 0;
-        }
+        Q.query = &source_H;
 
         Q.q_rare.clear();
         for (size_t s = 0; s < n_sites; ++s)
-          if (site_minor[s] == query[s])
+          if (site_minor[s] == (uint8_t)source_H[s])
             Q.q_rare.push_back((int)s);
         Q.p = 0;
         Q.p_p = 0;
@@ -972,6 +1001,7 @@ void haplotype_set::matchHapsFromCompressedPBWTSmall(
   int l_hq = 0;
   int last_k = -1;
   int l_all = 0;
+  int prev_hq_com_k = -1;
   for (int k = 0; k < n_tot_sites; k++) {
     if (M.vec_pos[k]->LQ) {
       l_all += flag_common[k];
@@ -980,13 +1010,14 @@ void haplotype_set::matchHapsFromCompressedPBWTSmall(
 
     if (flag_common[k]) {
       if (A_small_idx[l_hq].size() > 0 && !(last_k >= 0 && flag_common[last_k]))
-        init_common(k, l_hq, prev_ref_rac_l_com);
+        init_common(k, l_hq, prev_ref_rac_l_com, prev_hq_com_k);
       ref_rac_l_com = M.vec_pos[k]->cref;
       read_full_pbwt_av(pY, ref_rac_l_com);
       select_common_pd_fg(k, l_hq, l_all, ref_rac_l_com, prev_ref_rac_l_com);
       prev_ref_rac_l_com = ref_rac_l_com;
       ++l_all;
       ++l_hq;
+      prev_hq_com_k = k;
     } else {
       if (last_k < 0 || flag_common[last_k])
         init_rare(M, k, l_hq);
@@ -1195,9 +1226,11 @@ void haplotype_set::select_rare_pd_fg(const int k, const int ref_rac_l) {
 }
 
 void haplotype_set::init_common(const int k, const int l,
-                                const int prev_ref_rac_l_com) {
+                                const int prev_ref_rac_l_com,
+                                const int prev_com_k) {
   if (A_small_idx[l].size() <= 0)
     return;
+  const int k_prev = std::max(prev_com_k, 0);
 
   int j = 0;
   for (int htr = 0; htr < n_tar_haps; ++htr) {
@@ -1215,9 +1248,9 @@ void haplotype_set::init_common(const int k, const int l,
 
       if (g_dash <= f_dash) {
         counter_sel_gf++;
-        selectK(htr, common2tot[l - 1], prev_ref_rac_l_com, pbwt_array_A, K,
+        selectK(htr, k_prev, prev_ref_rac_l_com, pbwt_array_A, K,
                 tar_hap[htr]);
-        length_sel_gf.push(cm_pos[common2tot[l - 1]] - cm_pos[last_reset[htr]]);
+        length_sel_gf.push(cm_pos[k_prev] - cm_pos[last_reset[htr]]);
 
         f_dash = 0;
         g_dash = n_ref_haps;
@@ -1240,24 +1273,24 @@ void haplotype_set::init_common(const int k, const int l,
       if (g_dash <= f_dash) // TODO check this
       {
         counter_sel_gf++;
-        if (cm_pos[common2tot[l - 1]] - cm_pos[last_reset[htr]] >
+        if (cm_pos[k_prev] - cm_pos[last_reset[htr]] >
             pbwt_modulo_cm / 5.0f) // only long matches, e.g. 0.02cM
         {
           counter_sel_gf++;
-          selectK(htr, common2tot[l - 1], prev_ref_rac_l_com, pbwt_array_A, K,
+          selectK(htr, k_prev, prev_ref_rac_l_com, pbwt_array_A, K,
                   tar_hap[htr]);
-          length_sel_gf.push(cm_pos[common2tot[l - 1]] -
+          length_sel_gf.push(cm_pos[k_prev] -
                              cm_pos[last_reset[htr]]);
         }
         /*
-        selectK(htr, common2tot[l-1], prev_ref_rac_l_com, pbwt_array_A,
+        selectK(htr, k_prev, prev_ref_rac_l_com, pbwt_array_A,
         pbwt_depth/4, tar_hap[htr]);
-        length_sel_gf.push(cm_pos[common2tot[l-1]]
+        length_sel_gf.push(cm_pos[k_prev]
         - cm_pos[last_reset[htr]]);
         */
         f_dash = 0;
         g_dash = n_ref_haps - A_small_idx[l].size();
-        last_reset[htr] = common2tot[l - 1];
+        last_reset[htr] = k_prev;
       }
     }
 

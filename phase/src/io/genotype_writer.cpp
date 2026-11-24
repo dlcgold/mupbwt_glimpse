@@ -40,7 +40,7 @@ genotype_writer::genotype_writer(const haplotype_set & _H, const genotype_set & 
 genotype_writer::~genotype_writer() {
 }
 
-void genotype_writer::writeGenotypes(const std::string fname, OutputFormat output_fmt, OutputCompression output_compr, const int n_bits_bgen, const int n_main, const int n_threads, const std::string fai_fname) const {
+void genotype_writer::writeGenotypes(const std::string fname, OutputFormat output_fmt, OutputCompression output_compr, const int n_bits_bgen, const int n_main, const int n_threads, const std::string fai_fname, const int compression_level) const {
 	tac.clock();
 	unsigned int file_type = OFILE_BCFC;
 	std::string file_format = "wb";
@@ -50,6 +50,9 @@ void genotype_writer::writeGenotypes(const std::string fname, OutputFormat outpu
 		if (output_compr == OutputCompression::NONE) {file_format = "w"; file_type = OFILE_VCFU;}
 		else {file_format = "wz"; file_type = OFILE_VCFC;}
 	}
+
+	//htslib takes the compression level as a digit in the mode string
+	if (file_type != OFILE_VCFU) file_format += std::to_string(compression_level);
 
 	htsFile * fp = hts_open(fname.c_str(),file_format.c_str());
 	if (n_threads > 1) hts_set_threads(fp, n_threads);
@@ -70,10 +73,10 @@ void genotype_writer::writeGenotypes(const std::string fname, OutputFormat outpu
 	else bcf_hdr_append(hdr, std::string("##contig=<ID="+ V.chrid + ">").c_str());
 	bcf_hdr_append(hdr, "##INFO=<ID=RAF,Number=A,Type=Float,Description=\"ALT allele frequency in the reference panel\">");
 	bcf_hdr_append(hdr, "##INFO=<ID=AF,Number=A,Type=Float,Description=\"ALT allele frequency computed from DS/GP field across target samples\">");
-	if (H.fploidy>0) bcf_hdr_append(hdr, "##INFO=<ID=INFO,Number=A,Type=Float,Description=\"IMPUTE info quality score for diploid samples\">");
+	bcf_hdr_append(hdr, "##INFO=<ID=INFO,Number=A,Type=Float,Description=\"IMPUTE info quality score\">");
 	bcf_hdr_append(hdr, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Phased genotypes\">");
 	bcf_hdr_append(hdr, "##FORMAT=<ID=DS,Number=1,Type=Float,Description=\"Genotype dosage\">");
-	bcf_hdr_append(hdr, "##FORMAT=<ID=GP,Number=3,Type=Float,Description=\"Genotype posteriors\">");
+	bcf_hdr_append(hdr, "##FORMAT=<ID=GP,Number=G,Type=Float,Description=\"Genotype posteriors\">");
 	bcf_hdr_append(hdr, std::string("##NMAIN="+stb.str(n_main)).c_str());
 	bcf_hdr_append(hdr, std::string("##FPLOIDY="+stb.str(H.fploidy)).c_str());
 
@@ -170,24 +173,22 @@ void genotype_writer::writeGenotypes(const std::string fname, OutputFormat outpu
 			}
 			for (auto iter = map_ps.begin(); iter != map_ps.end() && std::accumulate(std::next(posteriors,(H.max_ploidy+1)*i+0), std::next(posteriors,(H.max_ploidy+1)*i+G.vecG[i]->ploidy+1), 0.0f)<0.9999f; ++iter) *iter->second += 0.001f;
 
-			// Compute INFO/INFO statistics
+			// Compute INFO/INFO statistics: sums of E[G] and E[G]^2, and of E[G^2], which is
+			// gp1 + 4*gp2 for a diploid sample and gp1 (= DS) for a haploid one.
 			ds_sum += ds;
-			if (H.fploidy == 2)
-			{
-				ds2_sum += ds * ds;
-				ds4_sum += gp1 + 4.0*gp2;
-			}
+			ds2_sum += ds * ds;
+			ds4_sum += (G.vecG[i]->ploidy > 1) ? gp1 + 4.0*gp2 : gp1;
 		}
 
 		// Update INFO fields
 		float freq_alt_refp = V.vec_pos[l]->calt * 1.0f / (V.vec_pos[l]->calt + V.vec_pos[l]->cref);
 		float freq_alt_main = ds_sum / H.n_tar_haps;
-		float infoscore = (H.fploidy == 2 && freq_alt_main>0.0 && freq_alt_main<1.0) ? (float)(1.0 - (ds4_sum - ds2_sum) / (H.n_tar_haps * freq_alt_main * (1.0 - freq_alt_main))) : 1.0f;
+		float infoscore = (freq_alt_main>0.0 && freq_alt_main<1.0) ? (float)(1.0 - (ds4_sum - ds2_sum) / (H.n_tar_haps * freq_alt_main * (1.0 - freq_alt_main))) : 1.0f;
 		infoscore = (infoscore<0.0f)?0.0f:infoscore;
 		infoscore = roundf(infoscore * 1000.0) / 1000.0;
 		bcf_update_info_float(hdr, rec, "RAF", &freq_alt_refp, 1);
 		bcf_update_info_float(hdr, rec, "AF", &freq_alt_main, 1);
-		if (H.fploidy>0) bcf_update_info_float(hdr, rec, "INFO", &infoscore, 1);
+		bcf_update_info_float(hdr, rec, "INFO", &infoscore, 1);
 
 		// Update FORMAT fields
 		bcf_update_genotypes(hdr, rec, genotypes, bcf_hdr_nsamples(hdr)*H.max_ploidy);

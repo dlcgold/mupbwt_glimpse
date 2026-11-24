@@ -58,6 +58,8 @@ typedef struct {
   uint32_t n_sites;
   column_vec cols;
   phi phid;
+  void **arena_blocks;
+  size_t n_arena_blocks;
 } pbwt;
 
 void pbwt_build(char *filename, pbwt *pbwt, int threads);

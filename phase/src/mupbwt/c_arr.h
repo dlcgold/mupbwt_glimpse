@@ -10,7 +10,7 @@
 #include <string.h>
 #include <zlib.h>
 
-typedef struct {
+typedef struct __attribute__((packed)) {
   uint32_t *data;
   size_t n;
   uint8_t bits;

@@ -29,6 +29,9 @@
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <filesystem>
+#ifdef __GLIBC__
+#include <malloc.h>
+#endif
 
 const std::string stage_names[3] = {"Init", "Burn-in", "Main"};
 
@@ -126,6 +129,13 @@ void caller::phase_iteration() {
     } else {
       H.matchHapsFromCompressedPBWTSmall(V, current_stage == STAGE_MAIN);
     }
+  }
+  if (!H.SvarRef.empty()) {
+    H.SvarRef.clear();
+    H.SvarRef.shrink_to_fit();
+#ifdef __GLIBC__
+    malloc_trim(0);
+#endif
   }
 
   tac.clock();

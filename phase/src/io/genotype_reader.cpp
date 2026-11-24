@@ -61,6 +61,7 @@ void genotype_reader::readInitializingSamples(string ftext) {
 void genotype_reader::readSamplesFilePloidy(std::string ftext) {
 	std::string buffer;
 	input_file fd (ftext);
+	if (fd.fail()) vrb.error("Cannot open samples file [" + ftext + "]");
 
 	bool repeated_samples=false;
 	std::vector<std::string> tokens(2);
@@ -71,7 +72,10 @@ void genotype_reader::readSamplesFilePloidy(std::string ftext) {
 		if (ploidy_samples.find(tokens[0]) == ploidy_samples.end()) ploidy_samples.insert(std::make_pair(tokens[0],mapPloidy[tokens[1]]));
 		else repeated_samples=true;
 	}
+	// A file that opens but fails mid-read (e.g. a truncated .gz) ends the loop like end of file.
+	if (fd.bad()) vrb.error("Cannot read samples file [" + ftext + "]; it may be truncated or corrupt");
 	if (repeated_samples) vrb.warning("Repeated sample in the file. Kept first instance");
+	if (ploidy_samples.empty()) vrb.warning("The samples file [" + ftext + "] lists no samples, so all target samples are treated as diploid.");
 	fd.close();
 }
 
@@ -197,6 +201,7 @@ void genotype_reader::scanGenotypesCommon(bcf_srs_t * sr, int ref_sr_n /* Refere
 
 	//Scan Ref file
 	n_ref_samples = bcf_hdr_nsamples(sr->readers[ref_sr_n].header);
+	if (n_ref_samples == 0) vrb.error("The reference panel [" + std::string(sr->readers[ref_sr_n].fname) + "] has no samples (is it a sites-only file?). GLIMPSE2_phase needs the phased haplotypes of the reference panel.");
 	H.n_tot_sites = 0;
 
 	//Scan file
@@ -425,14 +430,19 @@ void genotype_reader::set_ploidy_tar()
 	M.n_tar_haploid=0;
 	if (ploidy_samples.size() > 0)
 	{
+		int n_listed = 0;
 		for (int i = 0 ; i < M.n_tar_samples ; i ++)
 		{
 			M.tar_ind2gt[i] = 2*M.n_tar_diploid + M.n_tar_haploid;
 			M.tar_ind2pl[i] = 3*M.n_tar_diploid + 2*M.n_tar_haploid;
-			M.tar_ploidy[i] = (ploidy_samples.find(M.tar_sample_names[i])!=ploidy_samples.end()) ? ploidy_samples[M.tar_sample_names[i]] : 2;
+			const bool listed = ploidy_samples.find(M.tar_sample_names[i]) != ploidy_samples.end();
+			M.tar_ploidy[i] = listed ? ploidy_samples[M.tar_sample_names[i]] : 2;
+			n_listed += listed;
 			(M.tar_ploidy[i] > 1) ? ++M.n_tar_diploid : ++M.n_tar_haploid;
 		}
 		M.n_tar_haps = 2*M.n_tar_diploid + M.n_tar_haploid;
+		if (!samples_file_reported) vrb.bullet("Ploidy from --samples-file: " + stb.str(M.n_tar_haploid) + " haploid / " + stb.str(M.n_tar_diploid) + " diploid target samples (" + stb.str(n_listed) + " of the " + stb.str(ploidy_samples.size()) + " samples in the file are targets)");
+		samples_file_reported = true;
 	}
 	else
 	{	//default 2 ploidy
@@ -669,12 +679,22 @@ void genotype_reader::parseRefGenotypes(bcf_srs_t * sr) {
 	bool a = false;
 	int *ptr;
 	float *ptr_f;
+	int rAC=0, nAC=0, *vAC = NULL;
+	int rAN=0, nAN=0, *vAN = NULL;
 
 	while (bcf_sr_next_line (sr))
 	{
 		if (bcf_sr_get_line(sr, 0)->n_allele != 2) continue; //always ref
 
 		line_ref =  bcf_sr_get_line(sr, 0);
+
+		//Skip the monomorphic records scanGenotypesCommon skipped, so that i_site indexes the same sites
+		rAC = bcf_get_info_int32(sr->readers[0].header, line_ref, "AC", &vAC, &nAC);
+		rAN = bcf_get_info_int32(sr->readers[0].header, line_ref, "AN", &vAN, &nAN);
+		if ((nAC!=1)||(nAN!=1)) vrb.error("VCF for reference panel needs AC/AN INFO fields to be present");
+		calt = vAC[0]; cref = (vAN[0] - vAC[0]);
+		if (std::min(calt, cref) == 0 && !keep_mono) continue;
+
 		if (i_site==0) set_ploidy_ref(sr,0);
 
 		ngt_ref = bcf_get_genotypes(sr->readers[0].header, line_ref, &gt_arr_ref, &ngt_arr_ref);
@@ -703,6 +723,8 @@ void genotype_reader::parseRefGenotypes(bcf_srs_t * sr) {
 	}
 	if (sr->errnum) vrb.error("Error while parsing reference panel: " + std::string(bcf_sr_strerror(sr->errnum)));
 	free(gt_arr_ref);
+	free(vAC);
+	free(vAN);
 
 	// Report
 	vrb.bullet("Reference panel parsing done ("+stb.str(tac.rel_time()*1.0/1000, 2) + "s)");

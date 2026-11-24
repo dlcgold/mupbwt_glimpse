@@ -129,7 +129,13 @@ void caller::declare_options() {
       "err-imp", bpo::value<float>()->default_value(1e-12f),
       "(Expert setting) Imputation HMM error rate")(
       "err-phase", bpo::value<float>()->default_value(0.0001f),
-      "(Expert setting) Phasing HMM error rate");
+      "(Expert setting) Phasing HMM error rate")(
+      "hmm-checkpoint-block", bpo::value<int>()->default_value(64),
+      "(Expert setting) Keep the imputation HMM's forward probabilities only "
+      "every N sites and recompute the rest when needed, which greatly reduces "
+      "memory; output is unchanged. 0 (or any value at least the number of "
+      "sites) keeps every site, using much more memory but avoiding the "
+      "recomputation");
 
   bpo::options_description opt_selection("Selection parameters");
   opt_selection.add_options()("pbwt-depth",
@@ -210,7 +216,11 @@ void caller::declare_options() {
       "(Expert setting) Only used toghether when the output is in BGEN file "
       "format. Specifies the compression of the output BGEN file. If the "
       "output is in the .vcf[.gz]/.bcf format, this value is ignored. Accepted "
-      "values: [no,zlib,zstd]")("log", bpo::value<std::string>(), "Log file")(
+      "values: [no,zlib,zstd]")(
+      "compression-level", boost::program_options::value<int>()->default_value(6),
+      "Compression level for VCF/BCF output: 0 = none (still BGZF-framed and "
+      "indexable), 1 = fastest, 9 = smallest. Ignored for plain .vcf and BGEN "
+      "output.")("log", bpo::value<std::string>(), "Log file")(
       "checkpoint-file-out", bpo::value<std::string>(),
       "File to save checkpoint info in.");
 
@@ -230,7 +240,7 @@ void caller::parse_command_line(std::vector<std::string> &args) {
   } catch (const boost::program_options::error &e) {
     std::cerr << "Error parsing command line arguments: "
               << std::string(e.what()) << std::endl;
-    exit(0);
+    exit(1);
   }
 
   if (options.count("log") && !vrb.open_log(options["log"].as<std::string>()))
@@ -279,12 +289,19 @@ void caller::check_options() {
   if (options.count("seed") && options["seed"].as<int>() < 0)
     vrb.error("Random number generator needs a positive seed value");
 
+  if (options["hmm-checkpoint-block"].as<int>() < 0)
+    vrb.error("--hmm-checkpoint-block must be 0 or a positive number of sites");
+
   if (options["main"].as<int>() > 15)
     vrb.error("Maximum value for --main is 15. To run more iteration, increase "
               "--burn");
 
   if (options["threads"].as<int>() < 1)
     vrb.error("Number of threads is a strictly positive number.");
+
+  const int compression_level = options["compression-level"].as<int>();
+  if (compression_level < 0 || compression_level > 9)
+    vrb.error("Compression level must be between 0 and 9.");
 
   std::string reference_filename = options["reference"].as<std::string>();
   std::string ext0 = stb.get_extension(reference_filename);
@@ -465,6 +482,11 @@ void caller::verbose_files() {
   std::string n_bits = "";
   if (output_fmt == OutputFormat::BGEN)
     n_bits = " - " + stb.str(bgen_bits) + " bits";
+  std::string compr_level = "";
+  if (output_fmt != OutputFormat::BGEN &&
+      output_compr != OutputCompression::NONE)
+    compr_level =
+        " level " + stb.str(options["compression-level"].as<int>());
 
   if (options.count("bam-list"))
     vrb.bullet("List BAM/CRAM        : [" +
@@ -496,7 +518,7 @@ void caller::verbose_files() {
   vrb.bullet("Output format        : [" +
              fmt2string[static_cast<int>(output_fmt)] + " format" + n_bits +
              " | " + compr2string[static_cast<int>(output_compr)] +
-             " compression]");
+             " compression" + compr_level + "]");
 
   if (options.count("log"))
     vrb.bullet("Output LOG           : [" + options["log"].as<std::string>() +
@@ -574,6 +596,8 @@ void caller::verbose_options() {
   vrb.bullet("Imputation error rate: [" + stb.str(err_imp) + "]");
   vrb.bullet("Min value for hap GLs: [" +
              stb.str(options["min-gl"].as<float>()) + "]");
+  vrb.bullet("HMM checkpoint block : [" +
+             stb.str(options["hmm-checkpoint-block"].as<int>()) + "]");
 
   vrb.title("Selection parameters:");
   vrb.bullet("K init               : [" + opt_k_init + "]");

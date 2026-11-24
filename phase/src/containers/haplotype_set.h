@@ -168,7 +168,8 @@ public:
 
   std::vector<unsigned int> extract_random(const std::vector<unsigned int> &,
                                            std::size_t);
-  void init_common(const int k, const int l, const int ref_rac_l_com);
+  void init_common(const int k, const int l, const int ref_rac_l_com,
+                   const int prev_com_k);
 
   void init_rare(const variant_map &M, const int k, const int l);
 

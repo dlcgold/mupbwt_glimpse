@@ -276,6 +276,8 @@ void pbwt_build_af(pbwt *pbwt, std::string fref, ref_haplotype_set &H,
   kv_init(pbwt_cols);
 
   kv_init(pbwt->cols);
+  pbwt->arena_blocks = NULL;
+  pbwt->n_arena_blocks = 0;
 
   unsigned int i_site = 0, i_common = 0, n_ref_unphased = 0;
   int ngt_ref, *gt_arr_ref = NULL, ngt_arr_ref = 0;
@@ -599,7 +601,7 @@ void pbwt_build_scan_view(pbwt *pbwt, pbwt_scan_view &view, bool release_uv) {
       pool_n += (col->p.n + PBWT_SCAN_SAMPLE - 1) / PBWT_SCAN_SAMPLE;
   }
   view.off.assign(n_cols + 1, 0);
-  view.pool.assign(pool_n, 0);
+  view.pool.assign(pool_n + 16, 0);
   size_t o = 0;
   for (size_t i = 0; i < n_cols; i++) {
     pbwt_col *col = &pbwt->cols.a[i];
@@ -1036,8 +1038,21 @@ void free_pbwt(pbwt *p) {
   if (!p)
     return;
 
-  for (size_t i = 0; i < p->n_sites + 1; i++) {
-    free_pbwt_col(&p->cols.a[i]);
+  if (p->arena_blocks) {
+    for (size_t i = 0; i < p->n_sites + 1; i++) {
+      pbwt_col *c = &p->cols.a[i];
+      if (c->p.n > 0 && c->p.n <= PBWT_SCAN_RUNS)
+        c_arr_free(&c->uv);
+    }
+    for (size_t b = 0; b < p->n_arena_blocks; b++)
+      free(p->arena_blocks[b]);
+    free(p->arena_blocks);
+    p->arena_blocks = NULL;
+    p->n_arena_blocks = 0;
+  } else {
+    for (size_t i = 0; i < p->n_sites + 1; i++) {
+      free_pbwt_col(&p->cols.a[i]);
+    }
   }
   kv_destroy(p->cols);
 
@@ -1084,6 +1099,8 @@ int pbwt_deserialize_gz(const char *path, pbwt *p) {
   p->cols.n = p->n_sites + 1;
   p->cols.m = p->n_sites + 1;
   p->cols.a = (pbwt_col *)malloc(sizeof(pbwt_col) * p->cols.n);
+  p->arena_blocks = NULL;
+  p->n_arena_blocks = 0;
 
   for (size_t i = 0; i < p->cols.n; i++) {
     if (pbwt_col_deserialize_gz(fp, &p->cols.a[i]) != 0)
@@ -1111,6 +1128,80 @@ int pbwt_serialize(FILE *fp, const pbwt *p) {
   return 0;
 }
 
+typedef struct {
+  pbwt *owner;
+  uint32_t *cur;
+  size_t left;
+} pbwt_arena;
+
+static uint32_t *pbwt_arena_alloc(pbwt_arena *a, size_t n_words) {
+  const size_t block_words = (size_t)1 << 23;
+  if (n_words > a->left) {
+    size_t sz = n_words > block_words / 4 ? n_words : block_words;
+    uint32_t *b = (uint32_t *)calloc(sz, sizeof(uint32_t));
+    if (!b)
+      return NULL;
+    pbwt *p = a->owner;
+    p->arena_blocks = (void **)realloc(p->arena_blocks,
+                                       (p->n_arena_blocks + 1) * sizeof(void *));
+    p->arena_blocks[p->n_arena_blocks++] = b;
+    if (sz != block_words)
+      return b;
+    a->cur = b;
+    a->left = sz;
+  }
+  uint32_t *r = a->cur;
+  a->cur += n_words;
+  a->left -= n_words;
+  return r;
+}
+
+static int pbwt_arena_read_arr(FILE *fp, c_arr *arr, pbwt_arena *a,
+                               bool own_alloc) {
+  uint64_t n, bytes_len;
+  uint8_t bits;
+  if (fread(&n, sizeof(uint64_t), 1, fp) != 1)
+    return -1;
+  if (fread(&bits, sizeof(uint8_t), 1, fp) != 1)
+    return -1;
+  if (fread(&bytes_len, sizeof(uint64_t), 1, fp) != 1)
+    return -1;
+  arr->n = (size_t)n;
+  arr->bits = bits;
+  uint64_t n_words = (n * bits + 31) / 32;
+  if ((bytes_len + 3) / 4 > n_words)
+    n_words = (bytes_len + 3) / 4;
+  arr->data = own_alloc ? (uint32_t *)calloc(n_words + 1, sizeof(uint32_t))
+                        : pbwt_arena_alloc(a, n_words ? n_words : 1);
+  if (!arr->data)
+    return -1;
+  if (bytes_len > 0 && fread(arr->data, 1, bytes_len, fp) != bytes_len)
+    return -1;
+  return 0;
+}
+
+static int pbwt_col_deserialize_arena(FILE *fp, pbwt_col *col, pbwt_arena *a) {
+  if (pbwt_arena_read_arr(fp, &col->p, a, false) != 0)
+    return -1;
+  const bool small_uv = col->p.n > 0 && col->p.n <= PBWT_SCAN_RUNS;
+  if (pbwt_arena_read_arr(fp, &col->uv, a, small_uv) != 0)
+    return -1;
+  if (pbwt_arena_read_arr(fp, &col->t, a, false) != 0)
+    return -1;
+  if (pbwt_arena_read_arr(fp, &col->b_pa, a, false) != 0)
+    return -1;
+  if (pbwt_arena_read_arr(fp, &col->e_pa, a, false) != 0)
+    return -1;
+  if (c_arr_skip(fp) != 0)
+    return -1;
+  col->b_da = (c_arr){.data = NULL, .n = 0, .bits = 0};
+  if (fread(&col->zero, sizeof(bool), 1, fp) != 1)
+    return -1;
+  if (fread(&col->n_zeros, sizeof(uint32_t), 1, fp) != 1)
+    return -1;
+  return 0;
+}
+
 int pbwt_deserialize(FILE *fp, pbwt *p) {
   if (!fp || !p)
     return -1;
@@ -1119,11 +1210,13 @@ int pbwt_deserialize(FILE *fp, pbwt *p) {
   p->cols.n = p->n_sites + 1;
   p->cols.m = p->n_sites + 1;
   p->cols.a = (pbwt_col *)malloc(sizeof(pbwt_col) * (p->n_sites + 1));
+  p->arena_blocks = NULL;
+  p->n_arena_blocks = 0;
   phi_deserialize(&p->phid, fp);
 
+  pbwt_arena a = {p, NULL, 0};
   for (size_t i = 0; i < p->cols.n; i++) {
-    // printf("column %zu\n", i);
-    pbwt_col_deserialize(fp, &p->cols.a[i]);
+    pbwt_col_deserialize_arena(fp, &p->cols.a[i], &a);
   }
   return 0;
 }
