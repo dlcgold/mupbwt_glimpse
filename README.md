@@ -5,11 +5,25 @@
 ```shell
 make                 # downloads htslib 1.16 and boost 1.73 if missing, then builds everything
 make DNANEXUS=1      # servers with system boost/htslib (static .a): skips the downloads, upstream tools use their `system` target
-make original        # only the upstream tools under original/
+make upstream        # only the upstream GLIMPSE tools (chunk, ligate, concordance, inspect)
 make build_ser_from_bcf
 ```
 
-`make` builds `phase`, `split_reference`, `build_ser_from_bin`, `build_ser_from_bcf` and the five upstream tools. The upstream tools are linked statically against the bundled boost and htslib; they need `libdeflate-dev`.
+`make` builds `phase`, `split_reference`, `build_ser_from_bin`, `build_ser_from_bcf` and the upstream GLIMPSE2 `chunk`, `ligate`, `concordance`, `inspect`. The upstream tools are linked statically against the bundled boost and htslib; they need `libdeflate-dev`, and the SIMDe headers (`simde/`, e.g. in `/usr/include`) are needed to compile `phase`. The downloads need GNU make >= 4.3 (grouped targets).
+
+## Folders
+
+| Folder                                               | Content                                                                                                                             |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `phase`                                              | `GLIMPSE2_phase`, with the mu-PBWT selection (`--mupbwt`); without `--mupbwt` it is the stock GLIMPSE2 phasing                      |
+| `split_reference`                                    | `GLIMPSE2_split_reference`; without `--mupbwt` it is the stock reference splitting, with `--mupbwt` it also writes the `.ser` index |
+| `build_ser_from_bin`                                 | builds the mu-PBWT `.ser` from an existing `.bin`                                                                                   |
+| `build_ser_from_bcf`                                 | builds the mu-PBWT `.ser` from a reference BCF                                                                                      |
+| `chunk`, `ligate`, `concordance`, `inspect`          | upstream GLIMPSE2 master tools, unmodified; `GLIMPSE2_inspect` reads a `split_reference` `.bin`                                     |
+| `common`, `versions`                                 | shared sources and version header used by the tools                                                                                 |
+| `phase_legacy_index`, `split_reference_legacy_index` | legacy variants, not built by the root `makefile`                                                                                   |
+
+The stock baselines are no longer shipped as separate executables: `phase` without `--mupbwt` and `split_reference` without `--mupbwt` are the stock paths.
 
 ## Quick start
 
@@ -90,15 +104,10 @@ All of them only matter with `--mupbwt`. The reference must have been indexed (`
 | `--mupbwt-batch`             | 2       | maximum number of queries scanned together in one work item; must be `>= 1`. Bigger makes selection faster and uses more memory |
 | `--mupbwt-numa`              | true    | when several threads are used, interleave the mu-PBWT index over the machine's NUMA memory nodes                                |
 
-Measurements so far, all on the test machine used for the benchmarks:
-
-- 1000 Genomes chr20, 24 CEU samples: batch 2 with NUMA on gave no gain over batch 1 with NUMA off on this small panel.
-- Earlier 16-thread sweep: batch 8 made selection 16% faster than batch 2, but total wall time about 4% slower and 1.6 GiB more RAM.
-
 ## Docker
 
 `Dockerfile` builds all of the above into one image: the four mu-PBWT executables
-(`phase`, `split_reference`, `build_ser_from_bin`, `build_ser_from_bcf`) and the five upstream ones, plus `samtools`.
+(`phase`, `split_reference`, `build_ser_from_bin`, `build_ser_from_bcf`) and the three upstream ones, plus `samtools`.
 `Dockerfile_standalone` does the same but clones the repository itself, so it needs this layout to be in
 the repository branch it clones (`--build-arg REPO_URL=... --build-arg GIT_REF=...`).
 
@@ -124,5 +133,3 @@ docker run --rm -v "$PWD:/data" -w /data glimpse2-mupbwt -c "
 GLIMPSE2_phase --bam-list all.txt --reference 10k/ref_panel_10k_1_77_9999973.bin \
   --output imputed.bcf --main 15 --burnin 5 --thread 5 --mupbwt"
 ```
-
-`Dockerfile_standalone` clones the repository itself (--build-arg REPO_URL=... --build-arg GIT_REF=...) and builds all the tools in the image, so it needs no local checkout
