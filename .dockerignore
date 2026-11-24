@@ -1,8 +1,10 @@
-# host build artifacts: must be rebuilt inside the image
-htslib
-boost
-*/bin
-*/obj
-**/*.o
-**/*.a
-**/*.so
+**/bin
+**/obj
+*.ser
+*.bin
+/boost
+/htslib
+/old
+*.bcf
+*.vcf.gz
+*.bam
