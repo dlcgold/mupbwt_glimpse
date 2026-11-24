@@ -27,7 +27,7 @@ RUN wget -q https://github.com/simd-everywhere/simde/archive/refs/tags/v${SIMDE_
 WORKDIR /app
 COPY . .
 
-# compile downloading htslib and boost: mu-PBWT tools and upstream GLIMPSE chunk/ligate/concordance
+# compile downloading htslib and boost: mu-PBWT tools and upstream GLIMPSE chunk/ligate/concordance/inspect
 RUN make
 
 # run image
@@ -58,7 +58,8 @@ COPY --from=builder /app/build_ser_from_bcf/bin ./build_ser_from_bcf/bin
 COPY --from=builder /app/chunk/bin ./chunk/bin
 COPY --from=builder /app/ligate/bin ./ligate/bin
 COPY --from=builder /app/concordance/bin ./concordance/bin
+COPY --from=builder /app/inspect/bin ./inspect/bin
 
-ENV PATH="/app/phase/bin:/app/split_reference/bin:/app/build_ser_from_bin/bin:/app/build_ser_from_bcf/bin:/app/chunk/bin:/app/ligate/bin:/app/concordance/bin:${PATH}"
+ENV PATH="/app/phase/bin:/app/split_reference/bin:/app/build_ser_from_bin/bin:/app/build_ser_from_bcf/bin:/app/chunk/bin:/app/ligate/bin:/app/concordance/bin:/app/inspect/bin:${PATH}"
 
 ENTRYPOINT ["/bin/bash"]
