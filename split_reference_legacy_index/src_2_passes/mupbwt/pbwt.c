@@ -456,14 +456,12 @@ void pbwt_build_af(pbwt *pbwt, std::string fref, ref_haplotype_set &H,
 
   for (size_t i = 0; i < pbwt->n_haps; i++) {
     if (i == 0) {
-      if (supp_pa_b[l_pa[i]].n == 0 ||
-          supp_pa_b[l_pa[i]].a[supp_pa_b[l_pa[i]].n - 1] != pbwt->n_haps) {
+      if (supp_b[l_pa[i]].n == 0 || supp_b[l_pa[i]].a[supp_b[l_pa[i]].n - 1] != c) {
         kv_push(uint32_t, supp_pa_b[l_pa[i]], pbwt->n_haps);
         kv_push(uint32_t, supp_da_b[l_pa[i]], 0);
       }
     } else {
-      if (supp_pa_b[l_pa[i]].n == 0 ||
-          supp_pa_b[l_pa[i]].a[supp_pa_b[l_pa[i]].n - 1] != l_pa[i - 1]) {
+      if (supp_b[l_pa[i]].n == 0 || supp_b[l_pa[i]].a[supp_b[l_pa[i]].n - 1] != c) {
         kv_push(uint32_t, supp_pa_b[l_pa[i]], l_pa[i - 1]);
         kv_push(uint32_t, supp_da_b[l_pa[i]], l_da[i]);
       }
