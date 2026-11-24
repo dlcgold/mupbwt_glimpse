@@ -90,7 +90,6 @@ void caller::declare_options() {
       "assumes flat likelihoods at non-SNP variants, as genotype likelihoods "
       "from low-coverage data are often miscalibrated, potentially affecting "
       "neighbouring variants.")("mupbwt", "use mupbwt")(
-      "mupbwt-smems", "use mupbwt smems")("mupbwt-mpsc", "use mupbwt mpsc")(
       "mupbwt-min-cm", bpo::value<float>()->default_value(0.01f),
       "mupbwt minimum genetic-length (cM) for a match to be scored")(
       "mupbwt-short-cm", bpo::value<float>()->default_value(0.02f),
@@ -640,10 +639,6 @@ void caller::verbose_options() {
                no_yes[options.count("illumina13")] + "]");
     vrb.bullet("mupbwt               : [" + no_yes[options.count("mupbwt")] +
                "]");
-    vrb.bullet("mupbwt-smems         : [" +
-               no_yes[options.count("mupbwt-smems")] + "]");
-    vrb.bullet("mupbwt-mpsc          : [" +
-               no_yes[options.count("mupbwt-mpsc")] + "]");
     vrb.bullet("mupbwt-min-cm        : [" +
                stb.str(options["mupbwt-min-cm"].as<float>()) + "]");
     vrb.bullet("mupbwt-short-cm      : [" +
@@ -669,12 +664,6 @@ void caller::verbose_options() {
   }
   if (no_yes[options.count("mupbwt")] == "YES") {
     use_mu = true;
-  }
-  if (no_yes[options.count("mupbwt-smems")] == "YES") {
-    use_smems = true;
-  }
-  if (no_yes[options.count("mupbwt-mpsc")] == "YES") {
-    use_mpsc = true;
   }
 
 

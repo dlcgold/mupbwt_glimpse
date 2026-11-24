@@ -54,8 +54,6 @@ public:
   variant_map V;
   glimpse_mpileup M;
   bool use_mu = false;
-  bool use_smems = false;
-  bool use_mpsc = false;
 
   pbwt mupbwt;
 
