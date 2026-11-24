@@ -1,5 +1,5 @@
 PROJECTS = phase split_reference build_ser_from_bin build_ser_from_bcf
-UPSTREAM = chunk ligate concordance
+UPSTREAM = chunk ligate concordance inspect
 HTSLIB = htslib/libhts.a
 BOOST_LIBS = \
 	boost/lib/libboost_iostreams.so \
